@@ -50,7 +50,7 @@ scp ~/.ssh/id_ed25519.pub vmadmin@192.168.120.60:/home/vmadmin/.ssh/authorized_k
 sudo chmod 600 /home/vmadmin/.ssh/authorized_keys
 sudo chown vmadmin:vmadmin /home/vmadmin/.ssh/authorized_keys
 ```
-####SSH Daemon Configuration
+#### SSH Daemon Configuration
 Now create a more secure SSH configuration.
 
 Back up the existing config:
