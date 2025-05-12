@@ -13,11 +13,23 @@ sudo apt update && sudo apt install unattended-upgrades
 sudo systemctl enable unattended-upgrades
 sudo systemctl restart unattended-upgrades
 ```
+#### Periodenwerte täglich setzen/prüfen
+```bash
+sudo nano /etc/apt/apt.conf.d/20auto-upgrades
+```
 
+Add to config file
+```bash
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade   "1";
+```
 Confirm that automatic updates are properly configured:
 
 ```bash
 sudo systemctl status unattended-upgrades
+sudo unattended-upgrade --dry-run --verbose
+sudo tail -n 20 /var/log/unattended-upgrades/unattended-upgrades.log
+sudo tail -n 20 /var/log/apt/history.log
 ```
 
 ### Step 2: Enhance SSH Security
@@ -62,7 +74,7 @@ PermitRootLogin no            # Disable direct root login
 # Authentication Configuration
 PubkeyAuthentication yes      # Enable key-based auth
 PasswordAuthentication no     # Disable password auth
-PermitEmptyPasswords no       # Redundant with above
+PermitRootLogin no
 AuthorizedKeysFile .ssh/authorized_keys
 
 # Connection Monitoring
@@ -106,10 +118,15 @@ Set up a basic firewall with UFW:
 ```bash
 sudo apt-get install -y ufw
 sudo ufw --force reset
-sudo ufw default deny
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
 sudo ufw allow 22443/tcp
 sudo ufw logging on
 sudo ufw enable
+```
+#### Regeln prüfen
+```bash
+sudo ufw status verbose
 ```
 
 ## DNS Server Implementation
@@ -119,6 +136,8 @@ sudo ufw enable
 ```bash
 sudo apt-get update
 sudo apt-get install -y bind9 bind9utils bind9-doc
+sudo ufw allow 53/tcp
+sudo ufw reload
 ```
 
 ### Step 2: Configure DNS Global Options
@@ -342,6 +361,34 @@ These commands allow you to identify services running on your network servers.
 ```bash
 nc 192.168.110.60 80
 HEAD / HTTP/1.1
+```
+
+## Banner Grabbing
+```sudo nano /etc/apache2/conf-available/security.conf```
+
+Change Apache Config
+```
+ServerTokens Prod
+ServerSignature Off
+sudo systemctl reload apache2
+```
+
+For Bind
+```sudo nano /etc/bind/named.conf.options```
+
+Change config:
+```
+version none;
+```
+Then
+```sudo systemctl restart bind9```
+
+
+
+Check with
+```
+curl -I http://<SERVER> | grep -i '^Server:'
+dig @localhost version.bind TXT CHAOS   # sollte leer / NXDOMAIN sein
 ```
 
 ### DNS Server Information
