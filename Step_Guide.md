@@ -11,9 +11,8 @@ Implementing automatic updates helps protect your server against known vulnerabi
 ```bash
 sudo apt update && sudo apt install unattended-upgrades
 sudo systemctl enable unattended-upgrades
-sudo systemctl restart unattended-upgrades
 ```
-#### Periodenwerte täglich setzen/prüfen
+#### Edit /etc/apt/apt.conf.d/20auto-upgrades to enforce daily checks:
 ```bash
 sudo nano /etc/apt/apt.conf.d/20auto-upgrades
 ```
@@ -23,7 +22,7 @@ Add to config file
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade   "1";
 ```
-Confirm that automatic updates are properly configured:
+Verify configuration and logs:
 
 ```bash
 sudo systemctl status unattended-upgrades
@@ -33,25 +32,32 @@ sudo tail -n 20 /var/log/apt/history.log
 ```
 
 ### Step 2: Enhance SSH Security
-Create SSH Keypair
+#### Key Generation & Deployment
+Generate an Ed25519 keypair if not already present:
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
 ```
 
-Second, create a backup of your existing configuration:
-
+Create and secure the target user’s SSH directory:
 ```bash
-sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+sudo mkdir -p /home/vmadmin/.ssh
+sudo chmod 700 /home/vmadmin/.ssh
+sudo chown vmadmin:vmadmin /home/vmadmin/.ssh
+```
+Copy the public key and set strict permissions:
+```bash
 scp ~/.ssh/id_ed25519.pub vmadmin@192.168.120.60:/home/vmadmin/.ssh/authorized_keys
+sudo chmod 600 /home/vmadmin/.ssh/authorized_keys
+sudo chown vmadmin:vmadmin /home/vmadmin/.ssh/authorized_keys
 ```
+####SSH Daemon Configuration
+Now create a more secure SSH configuration.
 
-Now create a more secure SSH configuration:
-
+Back up the existing config:
 ```bash
-sudo nano /etc/ssh/sshd_config
+sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 ```
-
-Replace the content with this security-hardened configuration:
+Edit /etc/ssh/sshd_config to include:
 
 ```
 # SSH Configuration with Hardened Security Settings
@@ -98,16 +104,11 @@ AcceptEnv LANG LC_*           # Accept language settings
 Subsystem sftp /usr/lib/openssh/sftp-server
 ```
 
-Apply the new configuration:
+Restart the service and confirm:
 
 ```bash
-sudo systemctl restart ssh
-```
-
-Verify the SSH service is running on the new port:
-
-```bash
-sudo systemctl status ssh
+sudo systemctl restart sshd
+sudo systemctl status sshd
 ```
 
 > **Note**: In some cases, you may need to reboot the server for the changes to take effect.
