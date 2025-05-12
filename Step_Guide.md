@@ -218,13 +218,14 @@ zone "120.168.192.in-addr.arpa" {
 
 ### Step 4: Create Zone Database Files
 
-Create a directory for zone files:
-
+Create /etc/bind/zones and set permissions:
 ```bash
 sudo mkdir -p /etc/bind/zones
+sudo chown -R bind:bind /etc/bind/zones
+sudo chmod -R 755 /etc/bind/zones
 ```
 
-#### Internal Network Zone (smartlearn.lan)
+#### Internal Forward Zone (smartlearn.lan)
 
 ```bash
 sudo nano /etc/bind/zones/db.smartlearn.lan
@@ -233,24 +234,21 @@ sudo nano /etc/bind/zones/db.smartlearn.lan
 Add the following zone data:
 
 ```
-$TTL    86400
-@       IN      SOA     dns.smartlearn.dmz. admin.smartlearn.dmz. (
-                           2         ; Serial
-                        3600         ; Refresh
-                        1800         ; Retry
-                       604800         ; Expire
-                        86400 )      ; Negative Cache TTL
-
-; Name Server Definition
-@       IN      NS      dns.smartlearn.dmz.
-
-; Host Records
-dns      IN      A       192.168.120.60
-vmkl1   IN      A       192.168.110.70
-vmlf1   IN      A       192.168.110.1
+$TTL 86400
+@ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
+    3 ; Serial
+    604800 ; Refresh
+    86400 ; Retry
+    2419200 ; Expire
+    604800 ) ; Negative Cache TTL
+;
+@ IN NS dns.smartlearn.dmz.
+dns IN A 192.168.120.60
+vmkl1 IN A 192.168.110.70
+vmlf1 IN A 192.168.110.1
 ```
 
-#### DMZ Network Zone (smartlearn.dmz)
+#### DMZ Forward Zone (smartlearn.dmz)
 
 ```bash
 sudo nano /etc/bind/zones/db.smartlearn.dmz
@@ -259,22 +257,17 @@ sudo nano /etc/bind/zones/db.smartlearn.dmz
 Add the following zone data:
 
 ```
-$TTL    86400
-@       IN      SOA     dns.smartlearn.dmz. admin.smartlearn.dmz. (
-                           2         ; Serial
-                        3600         ; Refresh
-                        1800         ; Retry
-                       604800         ; Expire
-                        86400 )      ; Negative Cache TTL
-
-; Name Server Definition
-@       IN      NS      dns.smartlearn.dmz.
-
-; Host Records
-vmlm1   IN      A       192.168.120.60
-www     IN      A       192.168.120.60
-dns     IN      A       192.168.110.60
-vmlf1   IN      A       192.168.120.1
+$TTL 86400
+@ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
+    3 ; Serial
+    604800 ; Refresh
+    86400 ; Retry
+    2419200 ; Expire
+    604800 ) ; Negative Cache TTL
+;
+@ IN NS dns.smartlearn.dmz.
+vmlm1 IN A 192.168.120.60
+www IN A 192.168.120.60
 ```
 
 #### Reverse Zone for 192.168.110.0/24
@@ -286,21 +279,18 @@ sudo nano /etc/bind/zones/db.110.168.192
 Add the following reverse lookup data:
 
 ```
-$TTL    86400
-@       IN      SOA     dns.smartlearn.dmz. admin.smartlearn.dmz. (
-                           2         ; Serial
-                        3600         ; Refresh
-                        1800         ; Retry
-                       604800         ; Expire
-                        86400 )      ; Negative Cache TTL
-
-; Name Server Definition
-@       IN      NS      dns.smartlearn.dmz.
-
-; Reverse Lookup Records
-60      IN      PTR     dns.smartlearn.dmz.
-70      IN      PTR     vmkl1.smartlearn.lan.
-1       IN      PTR     vmlf1.smartlearn.lan.
+$TTL 86400
+@ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
+    3 ; Serial
+    604800 ; Refresh
+    86400 ; Retry
+    2419200 ; Expire
+    604800 ) ; Negative Cache TTL
+;
+@ IN NS dns.smartlearn.dmz.
+60 IN PTR dns.smartlearn.dmz.
+70 IN PTR vmkl1.smartlearn.lan.
+1 IN PTR vmlf1.smartlearn.lan.
 ```
 
 #### Reverse Zone for 192.168.120.0/24
@@ -312,34 +302,27 @@ sudo nano /etc/bind/zones/db.120.168.192
 Add the following reverse lookup data:
 
 ```
-$TTL    86400
-@       IN      SOA     dns.smartlearn.dmz. admin.smartlearn.dmz. (
-                           2         ; Serial
-                        3600         ; Refresh
-                        1800         ; Retry
-                       604800         ; Expire
-                        86400 )      ; Negative Cache TTL
-
-; Name Server Definition
-@       IN      NS      dns.smartlearn.dmz.
-
-; Reverse Lookup Records
-60      IN      PTR     vmlm1.smartlearn.dmz.
-60      IN      PTR     www.smartlearn.dmz.
-60      IN      PTR     dns.smartlearn.dmz.
-1       IN      PTR     vmlf1.smartlearn.dmz.
+$TTL 86400
+@ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
+    3 ; Serial
+    604800 ; Refresh
+    86400 ; Retry
+    2419200 ; Expire
+    604800 ) ; Negative Cache TTL
+;
+@ IN NS dns.smartlearn.dmz.
+60 IN PTR vmlm1.smartlearn.dmz.
+60 IN PTR www.smartlearn.dmz.
 ```
 
-### Step 5: Finalize DNS Configuration
-
-Set appropriate permissions and start the service:
-
+#### Reload named and confirm syntax:
 ```bash
 sudo chown -R bind:bind /etc/bind/zones
 sudo chmod -R 755 /etc/bind/zones
 sudo named-checkconf /etc/bind/named.conf
 sudo systemctl restart bind9
 sudo systemctl enable named
+sudo systemctl enable --now bind9
 sudo ufw allow 53/udp
 ```
 
@@ -386,4 +369,53 @@ dig @localhost version.bind TXT CHAOS   # sollte leer / NXDOMAIN sein
 
 ```bash
 echo -ne "\x00\x1c\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07\x76\x65\x72\x73\x69\x6f\x6e\x04\x62\x69\x6e\x64\x00\x00\x10\x00\x03" | nc -u <DNS_SERVER_IP> 53 | xxd -g 1
+```
+
+### Verification Checklist
+
+#### 1. SSH Connectivity (Port & Key-only):
+```bash
+ssh -i ~/.ssh/id_ed25519 -p 23344 vmadmin@192.168.120.60 echo "SSH OK"
+```
+
+#### 2. Root Login Disabled:
+```bash
+ssh -p 23344 root@192.168.120.60 || echo "Root login blocked"
+```
+
+#### 3. Password Authentication Disabled:
+```bash
+ssh -p 23344 vmadmin@192.168.120.60 || echo "Password auth disabled"
+```
+
+
+#### 4. Firewall Rules:
+```bash
+sudo ufw status | grep -E "23344/tcp.*ALLOW"
+sudo ufw status | grep -E "53/udp.*ALLOW"
+```
+
+#### 5. Web Service Reachability:
+```bash
+curl -Is http://192.168.120.60 | head -n1
+```
+
+#### 6. DNS A Record Lookup:
+```bash
+dig +short vmlm1.smartlearn.dmz @192.168.120.60
+```
+
+#### 7. DNS Reverse Lookup:
+```bash
+dig +short -x 192.168.120.60 @192.168.120.60
+```
+
+#### 8. Idle Session Timeout:
+```bash
+ssh -p 23344 vmadmin@192.168.120.60 sleep 310; echo "Should be disconnected"
+```
+
+#### 9. Fail2Ban Status:
+```bash
+sudo fail2ban-client status sshd
 ```
