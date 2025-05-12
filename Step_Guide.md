@@ -64,7 +64,7 @@ Edit /etc/ssh/sshd_config to include:
 # --------------------------------------
 # General Connection Settings
 Protocol 2                    # Use SSH protocol version 2 only
-Port 22443                    # Non-standard port for security
+Port 23344                    # Non-standard port for security
 
 # Server Authentication Keys
 HostKey /etc/ssh/ssh_host_ed25519_key
@@ -119,13 +119,9 @@ Use UFW to restrict incoming connections:
 ```bash
 sudo apt install -y ufw
 sudo ufw --force reset
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
+sudo ufw default deny
 sudo ufw allow 23344/tcp
 sudo ufw allow 23344/udp
-sudo ufw allow 80/tcp        # for web service
-sudo ufw allow 53/tcp
-sudo ufw allow 53/udp
 sudo ufw logging on
 sudo ufw enable
 ```
@@ -169,6 +165,7 @@ options {
     listen-on-v6 { any; };
     allow-query { any; };
     forwarders { 1.1.1.1; 8.8.8.8; };
+    recursion no;
     auth-nxdomain no;
     version none;
     dnssec-validation no;
@@ -243,6 +240,7 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
+
 dns IN A 192.168.120.60
 vmkl1 IN A 192.168.110.70
 vmlf1 IN A 192.168.110.1
@@ -266,8 +264,11 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
-vmlm1 IN A 192.168.120.60
-www IN A 192.168.120.60
+
+vmlm1   IN A 192.168.120.60
+www     IN A 192.168.120.60
+dns     IN A 192.168.120.60
+vmlf1   IN A 192.168.120.1
 ```
 
 #### Reverse Zone for 192.168.110.0/24
@@ -288,7 +289,7 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
-60 IN PTR dns.smartlearn.dmz.
+
 70 IN PTR vmkl1.smartlearn.lan.
 1 IN PTR vmlf1.smartlearn.lan.
 ```
@@ -311,19 +312,23 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
+
 60 IN PTR vmlm1.smartlearn.dmz.
 60 IN PTR www.smartlearn.dmz.
+60 IN PTR dns.smartlearn.dmz.
+1  IN PTR vmlf1.smartlearn.dmz.
 ```
 
 #### Reload named and confirm syntax:
 ```bash
 sudo chown -R bind:bind /etc/bind/zones
 sudo chmod -R 755 /etc/bind/zones
-sudo named-checkconf /etc/bind/named.conf
+sudo named-checkconf or sudo named-checkconf /etc/bind/named.conf
+sudo named-checkzone smartlearn.lan /etc/bind/zones/db.smartlearn.lan
+sudo named-checkzone smartlearn.dmz /etc/bind/zones/db.smartlearn.dmz
+sudo named-checkzone 110.168.192.in-addr.arpa /etc/bind/zones/db.110.168.192
+sudo named-checkzone 120.168.192.in-addr.arpa /etc/bind/zones/db.120.168.192
 sudo systemctl restart bind9
-sudo systemctl enable named
-sudo systemctl enable --now bind9
-sudo ufw allow 53/udp
 ```
 
 ## Service Fingerprinting
