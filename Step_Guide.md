@@ -12,16 +12,7 @@ Implementing automatic updates helps protect your server against known vulnerabi
 sudo apt update && sudo apt install unattended-upgrades
 sudo systemctl enable unattended-upgrades
 ```
-#### Edit /etc/apt/apt.conf.d/20auto-upgrades to enforce daily checks:
-```bash
-sudo nano /etc/apt/apt.conf.d/20auto-upgrades
-```
 
-Add to config file
-```bash
-APT::Periodic::Update-Package-Lists "1";
-APT::Periodic::Unattended-Upgrade   "1";
-```
 Verify configuration and logs:
 
 ```bash
@@ -107,8 +98,8 @@ Subsystem sftp /usr/lib/openssh/sftp-server
 Restart the service and confirm:
 
 ```bash
-sudo systemctl restart sshd
-sudo systemctl status sshd
+sudo systemctl restart ssh
+sudo systemctl status ssh
 ```
 
 > **Note**: In some cases, you may need to reboot the server for the changes to take effect.
