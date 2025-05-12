@@ -42,6 +42,7 @@ Second, create a backup of your existing configuration:
 
 ```bash
 sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+scp ~/.ssh/id_ed25519.pub vmadmin@192.168.120.60:/home/vmadmin/.ssh/authorized_keys
 ```
 
 Now create a more secure SSH configuration:
