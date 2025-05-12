@@ -9,8 +9,7 @@ This comprehensive guide walks you through implementing security hardening for y
 Implementing automatic updates helps protect your server against known vulnerabilities:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y unattended-upgrades
+sudo apt update && sudo apt install unattended-upgrades
 sudo systemctl enable unattended-upgrades
 sudo systemctl restart unattended-upgrades
 ```
@@ -22,8 +21,12 @@ sudo systemctl status unattended-upgrades
 ```
 
 ### Step 2: Enhance SSH Security
+Create SSH Keypair
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
+```
 
-First, create a backup of your existing configuration:
+Second, create a backup of your existing configuration:
 
 ```bash
 sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
@@ -38,40 +41,48 @@ sudo nano /etc/ssh/sshd_config
 Replace the content with this security-hardened configuration:
 
 ```
-# Enhanced SSH Server Configuration
-Port 23344
-Protocol 2
-HostKey /etc/ssh/ssh_host_rsa_key
-HostKey /etc/ssh/ssh_host_ecdsa_key
+# SSH Configuration with Hardened Security Settings
+# --------------------------------------
+# General Connection Settings
+Protocol 2                    # Use SSH protocol version 2 only
+Port 22443                    # Non-standard port for security
+
+# Server Authentication Keys
 HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_rsa_key
 
-# Enhanced Logging
-SyslogFacility AUTH
-LogLevel VERBOSE
+# Session Management & Security
+MaxSessions 5                 # Limit concurrent sessions
+MaxAuthTries 3                # Prevent brute force attacks
+LoginGraceTime 30             # Seconds to complete login
+StrictModes yes               # Check file permissions
+PermitRootLogin no            # Disable direct root login
 
-# Security Parameters
-LoginGraceTime 30
-PermitRootLogin no
-StrictModes yes
-MaxAuthTries 3
-MaxSessions 5
-
-# Force Key-Based Authentication
-PasswordAuthentication no
-PubkeyAuthentication yes
+# Authentication Configuration
+PubkeyAuthentication yes      # Enable key-based auth
+PasswordAuthentication no     # Disable password auth
+PermitEmptyPasswords no       # Redundant with above
 AuthorizedKeysFile .ssh/authorized_keys
 
-# Security Restrictions
-X11Forwarding no
-PrintMotd no
-AcceptEnv LANG LC_*
+# Connection Monitoring
+ClientAliveInterval 300       # Check client every 5 min
+ClientAliveCountMax 2         # Disconnect after 2 failed checks
+
+# Logging Options
+SyslogFacility AUTH
+LogLevel VERBOSE              # Detailed logs
+
+# Feature Restrictions
+X11Forwarding no              # No X11 forwarding
+AllowTcpForwarding no         # No port forwarding
+AllowAgentForwarding no       # No agent forwarding
+PrintMotd no                  # No message of the day
+Banner /etc/issue.net         # Custom banner message
+
+# Additional Settings
+AcceptEnv LANG LC_*           # Accept language settings
 Subsystem sftp /usr/lib/openssh/sftp-server
-AllowTcpForwarding no
-AllowAgentForwarding no
-PermitEmptyPasswords no
-ClientAliveInterval 300
-ClientAliveCountMax 2
-Banner /etc/issue.net
 ```
 
 Apply the new configuration:
@@ -96,7 +107,8 @@ Set up a basic firewall with UFW:
 sudo apt-get install -y ufw
 sudo ufw --force reset
 sudo ufw default deny
-sudo ufw allow 23344/tcp
+sudo ufw allow 22443/tcp
+sudo ufw logging on
 sudo ufw enable
 ```
 
