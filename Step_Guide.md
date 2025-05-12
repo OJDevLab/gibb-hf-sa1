@@ -9,8 +9,10 @@ This comprehensive guide walks you through implementing security hardening for y
 Implementing automatic updates helps protect your server against known vulnerabilities:
 
 ```bash
-sudo apt update && sudo apt install unattended-upgrades
+sudo apt update && sudo apt upgrade
+sudo apt install unattended-upgrades
 sudo systemctl enable unattended-upgrades
+sudo dpkg-reconfigure --priority=low unattended-upgrades
 ```
 
 Verify configuration and logs:
@@ -18,13 +20,12 @@ Verify configuration and logs:
 ```bash
 sudo systemctl status unattended-upgrades
 sudo unattended-upgrade --dry-run --verbose
-sudo tail -n 20 /var/log/unattended-upgrades/unattended-upgrades.log
-sudo tail -n 20 /var/log/apt/history.log
+cat /etc/apt/apt.conf.d/20auto-upgrades
 ```
 
 ### Step 2: Enhance SSH Security
 #### Key Generation & Deployment
-Generate an Ed25519 keypair if not already present:
+Generate an Ed25519 keypair on vmKL1 if not already present:
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
 ```
@@ -35,9 +36,13 @@ sudo mkdir -p /home/vmadmin/.ssh
 sudo chmod 700 /home/vmadmin/.ssh
 sudo chown vmadmin:vmadmin /home/vmadmin/.ssh
 ```
-Copy the public key and set strict permissions:
+Copy the public key on vmLM1 and set strict permissions:
 ```bash
 scp ~/.ssh/id_ed25519.pub vmadmin@192.168.120.60:/home/vmadmin/.ssh/authorized_keys
+```
+
+Auf vmLM1
+```bash
 sudo chmod 600 /home/vmadmin/.ssh/authorized_keys
 sudo chown vmadmin:vmadmin /home/vmadmin/.ssh/authorized_keys
 ```
@@ -46,9 +51,21 @@ Now create a more secure SSH configuration.
 
 Back up the existing config:
 ```bash
+ssh 192.168.120.60
 sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 ```
 Edit /etc/ssh/sshd_config to include:
+```bash sudo nano /etc/ssh/sshd_config```
+
+Change to PasswordAuthentication and Port
+```
+Port 23344                    # Non-standard port for security
+
+...
+
+PasswordAuthentication no     # Disable password auth
+```
+Example Config File
 
 ```
 # SSH Configuration with Hardened Security Settings
@@ -111,8 +128,7 @@ Use UFW to restrict incoming connections:
 sudo apt install -y ufw
 sudo ufw --force reset
 sudo ufw default deny
-sudo ufw allow 23344/tcp
-sudo ufw allow 23344/udp
+sudo ufw allow 23344
 sudo ufw logging on
 sudo ufw enable
 ```
@@ -121,6 +137,24 @@ Check active rules:
 ```bash
 sudo ufw status verbose
 ```
+
+### Checkliste 
+Automatische Updates
+sudo systemctl status unattended-upgrades
+Authentifikation mit SSH
+sudo systemctl status ssh
+- Sieht man das SSH auf Port 23344 läuft.
+Passwortauthentifikation sperren
+cat /etc/ssh/sshd_config
+Oder mit ssh 192.168.120.60 -p 23344 ohne Private Key
+Firewall mit Default-Deny-Regel
+sudo ufw status oder nmap 192.168.120.60
+Nur Port 23344 ist offen
+sudo ufw status oder nmap 192.168.120.60
+
+#### Addional tasks
+Disable ICMP Ping
+Disable Ipv6 on Firewall
 
 ## DNS Server Implementation
 
