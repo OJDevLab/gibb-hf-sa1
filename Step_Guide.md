@@ -371,7 +371,7 @@ dig @localhost version.bind TXT CHAOS   # sollte leer / NXDOMAIN sein
 echo -ne "\x00\x1c\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07\x76\x65\x72\x73\x69\x6f\x6e\x04\x62\x69\x6e\x64\x00\x00\x10\x00\x03" | nc -u <DNS_SERVER_IP> 53 | xxd -g 1
 ```
 
-### Verification Checklist
+## Verification Checklist
 
 #### 1. SSH Connectivity (Port & Key-only):
 ```bash
