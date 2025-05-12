@@ -116,7 +116,9 @@ Restart the service and confirm:
 
 ```bash
 sudo systemctl restart ssh
+sudo systemctl daemon-reload
 sudo systemctl status ssh
+sudo systemctl status ssh.socket
 ```
 
 > **Note**: In some cases, you may need to reboot the server for the changes to take effect.
