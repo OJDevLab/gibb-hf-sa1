@@ -357,6 +357,22 @@ sudo named-checkzone 110.168.192.in-addr.arpa /etc/bind/zones/db.110.168.192
 sudo named-checkzone 120.168.192.in-addr.arpa /etc/bind/zones/db.120.168.192
 sudo systemctl restart bind9
 ```
+Check with nslookup
+```bash
+nslookup vmkl1.smartlearn.lan 192.168.120.60
+nslookup vmlf1.smartlearn.lan 192.168.120.60
+nslookup dns.smartlearn.lan 192.168.120.60
+
+nslookup vmlm1.smartlearn.dmz 192.168.120.60
+nslookup www.smartlearn.dmz 192.168.120.60
+nslookup dns.smartlearn.dmz 192.168.120.60
+nslookup vmlf1.smartlearn.dmz 192.168.120.60
+
+nslookup 192.168.110.70 192.168.120.60  # Sollte vmkl1.smartlearn.lan zurückgeben
+nslookup 192.168.110.1 192.168.120.60   # Sollte vmlf1.smartlearn.lan zurückgeben
+nslookup 192.168.120.60 192.168.120.60  # Sollte mehrere Einträge haben (vmlm1, www, dns)
+nslookup 192.168.120.1 192.168.120.60   # Sollte vmlf1.smartlearn.dmz zurückgeben
+```
 
 ## Service Fingerprinting
 
