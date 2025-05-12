@@ -115,18 +115,22 @@ sudo systemctl status sshd
 
 ### Step 3: Configure Firewall Protection
 
-Set up a basic firewall with UFW:
-
+Use UFW to restrict incoming connections:
 ```bash
-sudo apt-get install -y ufw
+sudo apt install -y ufw
 sudo ufw --force reset
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
-sudo ufw allow 22443/tcp
+sudo ufw allow 23344/tcp
+sudo ufw allow 23344/udp
+sudo ufw allow 80/tcp        # for web service
+sudo ufw allow 53/tcp
+sudo ufw allow 53/udp
 sudo ufw logging on
 sudo ufw enable
 ```
-#### Regeln prüfen
+
+Check active rules:
 ```bash
 sudo ufw status verbose
 ```
@@ -136,23 +140,22 @@ sudo ufw status verbose
 ### Step 1: Install DNS Server Software
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y bind9 bind9utils bind9-doc
+sudo apt update
+sudo apt install -y bind9 bind9utils bind9-doc
 sudo ufw allow 53/tcp
+sudo ufw allow 53/udp
 sudo ufw reload
 ```
 
 ### Step 2: Configure DNS Global Options
 
 Create a backup of your original configuration files:
-
 ```bash
 sudo cp /etc/bind/named.conf.local /etc/bind/named.conf.local.original
 sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.original
 ```
 
 Configure BIND options:
-
 ```bash
 sudo nano /etc/bind/named.conf.options
 ```
@@ -162,24 +165,10 @@ Add the following configuration:
 ```
 options {
     directory "/var/cache/bind";
-
-    // Network Security: Restrict Query Access
-    allow-query {
-        localhost;
-        192.168.110.0/24;
-        192.168.120.0/24;
-    };
-
-    // External DNS Resolution
-    forwarders {
-        1.1.1.1;
-        8.8.8.8;
-        8.8.4.4;
-    };
-
+    listen-on { any; };
     listen-on-v6 { any; };
-
-    // Security Enhancements
+    allow-query { any; };
+    forwarders { 1.1.1.1; 8.8.8.8; };
     auth-nxdomain no;
     version none;
     dnssec-validation no;
