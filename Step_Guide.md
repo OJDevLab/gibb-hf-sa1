@@ -198,11 +198,10 @@ options {
     dnssec-validation no;
 };
 ```
-# DNS Configuration for Server Hardening
 
-## Step 3: Set Up DNS Zones
+### Step 3: Set Up DNS Zones
 
-### Configure Local Zones
+#### Configure Local Zones
 
 ```
 bash
@@ -239,7 +238,7 @@ zone "120.168.192.in-addr.arpa" {
 };
 ```
 
-## Step 4: Create Zone Database Files
+### Step 4: Create Zone Database Files
 
 Create `/etc/bind/zones` and set permissions:
 
@@ -250,7 +249,7 @@ sudo chown -R bind:bind /etc/bind/zones
 sudo chmod -R 755 /etc/bind/zones
 ```
 
-### Internal Forward Zone (`smartlearn.lan`)
+#### Internal Forward Zone (`smartlearn.lan`)
 
 ```
 bash
@@ -275,7 +274,7 @@ li232-vmKL1 IN A 192.168.110.70
 if227-vmLF1 IN A 192.168.110.1
 ```
 
-### DMZ Forward Zone (`smartlearn.dmz`)
+#### DMZ Forward Zone (`smartlearn.dmz`)
 
 ```
 bash
@@ -301,7 +300,7 @@ li223-vmLM1 IN A 192.168.120.60
 if227-vmLF1 IN A 192.168.120.1
 ```
 
-### Reverse Zone for `192.168.110.0/24`
+#### Reverse Zone for `192.168.110.0/24`
 
 ```
 bash
@@ -325,7 +324,7 @@ $TTL 86400
 1 IN PTR if227-vmLF1.smartlearn.lan.
 ```
 
-### Reverse Zone for `192.168.120.0/24`
+#### Reverse Zone for `192.168.120.0/24`
 
 ```
 bash
@@ -351,7 +350,7 @@ $TTL 86400
 1  IN PTR if227-vmLF1.smartlearn.dmz.
 ```
 
-## Reload `named` and Confirm Syntax
+### Reload `named` and Confirm Syntax
 
 ```
 bash
