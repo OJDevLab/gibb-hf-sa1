@@ -198,41 +198,40 @@ options {
     dnssec-validation no;
 };
 ```
+# DNS Configuration for Server Hardening
 
-### Step 3: Set Up DNS Zones
+## Step 3: Set Up DNS Zones
 
-Configure local zones:
+### Configure Local Zones
 
-```bash
+```
+bash
 sudo nano /etc/bind/named.conf.local
 ```
 
 Add the following zone definitions:
 
 ```
+text
 // Zone Definitions
-
 // Primary Zone: Internal Network
 zone "smartlearn.lan" {
     type master;
     file "/etc/bind/zones/db.smartlearn.lan";
     allow-transfer { none; };
 };
-
 // Primary Zone: DMZ Network
 zone "smartlearn.dmz" {
     type master;
     file "/etc/bind/zones/db.smartlearn.dmz";
     allow-transfer { none; };
 };
-
 // Reverse Lookup Zones
 zone "110.168.192.in-addr.arpa" {
     type master;
     file "/etc/bind/zones/db.110.168.192";
     allow-transfer { none; };
 };
-
 zone "120.168.192.in-addr.arpa" {
     type master;
     file "/etc/bind/zones/db.120.168.192";
@@ -240,24 +239,26 @@ zone "120.168.192.in-addr.arpa" {
 };
 ```
 
-### Step 4: Create Zone Database Files
+## Step 4: Create Zone Database Files
 
-Create /etc/bind/zones and set permissions:
-```bash
+Create `/etc/bind/zones` and set permissions:
+
+```
+bash
 sudo mkdir -p /etc/bind/zones
 sudo chown -R bind:bind /etc/bind/zones
 sudo chmod -R 755 /etc/bind/zones
 ```
 
-#### Internal Forward Zone (smartlearn.lan)
+### Internal Forward Zone (`smartlearn.lan`)
 
-```bash
+```
+bash
 sudo nano /etc/bind/zones/db.smartlearn.lan
 ```
 
-Add the following zone data:
-
 ```
+dns
 $TTL 86400
 @ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
     3 ; Serial
@@ -267,21 +268,22 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
-
 dns IN A 192.168.120.60
 vmkl1 IN A 192.168.110.70
 vmlf1 IN A 192.168.110.1
+li232-vmKL1 IN A 192.168.110.70
+if227-vmLF1 IN A 192.168.110.1
 ```
 
-#### DMZ Forward Zone (smartlearn.dmz)
+### DMZ Forward Zone (`smartlearn.dmz`)
 
-```bash
+```
+bash
 sudo nano /etc/bind/zones/db.smartlearn.dmz
 ```
 
-Add the following zone data:
-
 ```
+dns
 $TTL 86400
 @ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
     3 ; Serial
@@ -291,22 +293,23 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
-
 vmlm1   IN A 192.168.120.60
 www     IN A 192.168.120.60
 dns     IN A 192.168.120.60
 vmlf1   IN A 192.168.120.1
+li223-vmLM1 IN A 192.168.120.60
+if227-vmLF1 IN A 192.168.120.1
 ```
 
-#### Reverse Zone for 192.168.110.0/24
+### Reverse Zone for `192.168.110.0/24`
 
-```bash
+```
+bash
 sudo nano /etc/bind/zones/db.110.168.192
 ```
 
-Add the following reverse lookup data:
-
 ```
+dns
 $TTL 86400
 @ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
     3 ; Serial
@@ -316,20 +319,21 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
-
 70 IN PTR vmkl1.smartlearn.lan.
 1 IN PTR vmlf1.smartlearn.lan.
+70 IN PTR li232-vmKL1.smartlearn.lan.
+1 IN PTR if227-vmLF1.smartlearn.lan.
 ```
 
-#### Reverse Zone for 192.168.120.0/24
+### Reverse Zone for `192.168.120.0/24`
 
-```bash
+```
+bash
 sudo nano /etc/bind/zones/db.120.168.192
 ```
 
-Add the following reverse lookup data:
-
 ```
+dns
 $TTL 86400
 @ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
     3 ; Serial
@@ -339,24 +343,29 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
-
 60 IN PTR vmlm1.smartlearn.dmz.
 60 IN PTR www.smartlearn.dmz.
 60 IN PTR dns.smartlearn.dmz.
 1  IN PTR vmlf1.smartlearn.dmz.
+60 IN PTR li223-vmLM1.smartlearn.dmz.
+1  IN PTR if227-vmLF1.smartlearn.dmz.
 ```
 
-#### Reload named and confirm syntax:
-```bash
+## Reload `named` and Confirm Syntax
+
+```
+bash
 sudo chown -R bind:bind /etc/bind/zones
 sudo chmod -R 755 /etc/bind/zones
-sudo named-checkconf or sudo named-checkconf /etc/bind/named.conf
+sudo named-checkconf
 sudo named-checkzone smartlearn.lan /etc/bind/zones/db.smartlearn.lan
 sudo named-checkzone smartlearn.dmz /etc/bind/zones/db.smartlearn.dmz
 sudo named-checkzone 110.168.192.in-addr.arpa /etc/bind/zones/db.110.168.192
 sudo named-checkzone 120.168.192.in-addr.arpa /etc/bind/zones/db.120.168.192
 sudo systemctl restart bind9
 ```
+
+
 Check with nslookup
 ```bash
 nslookup vmkl1.smartlearn.lan 192.168.120.60
