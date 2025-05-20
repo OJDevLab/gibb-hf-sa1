@@ -209,6 +209,7 @@ setup_auto_updates() {
 }
 
 # Aufgabe 2: SSH-Härtung
+# Aufgabe 2: SSH-Härtung
 setup_ssh_hardening() {
   print_section "Aufgabe 2: SSH-Härtung konfigurieren"
   
@@ -284,32 +285,12 @@ EOF
   run_ssh_command_with_password "sudo systemctl restart ssh"
   check_command $?
   
-  echo "10. Teste Verbindung zum neuen SSH-Port..."
-  sleep 3  # Warte kurz, bis der SSH-Dienst neu gestartet ist
+  echo -e "\n${YELLOW}SSH-Konfiguration angewendet. Nun muss die Firewall konfiguriert werden,${NC}"
+  echo -e "${YELLOW}bevor eine Verbindung über Port $NEW_SSH_PORT möglich ist.${NC}"
+  echo -e "${YELLOW}Bitte führen Sie als nächstes die Firewall-Konfiguration aus.${NC}"
   
-  # Versuche, eine Verbindung auf dem neuen Port herzustellen
-  if ssh -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &> /dev/null; then
-    echo -e "${GREEN}✓ SSH-Verbindung auf Port $NEW_SSH_PORT erfolgreich${NC}"
-    # Den SSH-Status auf gehärteten Zustand setzen
-    SSH_HARDENED=true
-  else
-    echo -e "${RED}✗ SSH-Verbindung auf Port $NEW_SSH_PORT fehlgeschlagen${NC}"
-    echo -e "${YELLOW}Versuche, SSH-Konfiguration wiederherzustellen...${NC}"
-    
-    # Wiederherstellen der Konfiguration
-    run_ssh_command_with_password "sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config && sudo systemctl restart ssh"
-    
-    echo -e "${RED}Fehler: SSH-Härtung fehlgeschlagen. Die ursprüngliche Konfiguration wurde wiederhergestellt.${NC}"
-    return 1
-  fi
-  
-  echo -e "\n${YELLOW}SSH-Konfiguration:${NC}"
-  run_command "grep -E '^Port|^PasswordAuthentication' /etc/ssh/sshd_config"
-  
-  echo -e "\n${YELLOW}SSH-Dienststatus:${NC}"
-  run_command "sudo systemctl status ssh | head -15"
-  
-  echo -e "\n${GREEN}SSH-Härtung abgeschlossen. SSH läuft jetzt auf Port $NEW_SSH_PORT mit Key-Authentifizierung.${NC}"
+  # Wichtig: Wir setzen SSH_HARDENED noch NICHT auf true, da die Firewall noch nicht konfiguriert ist
+  # Die Verbindung kann noch nicht getestet werden
   
   pause_for_screenshot
 }
@@ -322,44 +303,64 @@ setup_firewall() {
   check_server_connectivity || return 1
   
   echo "Installation der UFW Firewall..."
-  run_command "sudo apt install -y ufw"
+  run_ssh_command_with_password "sudo apt install -y ufw"
   check_command $?
   
   # Prüfe, ob UFW installiert wurde
-  run_command "dpkg -l | grep ufw"
+  run_ssh_command_with_password "dpkg -l | grep ufw"
   check_command $? || echo -e "${YELLOW}Warnung: Installation konnte nicht verifiziert werden${NC}"
   
   echo "Backup der Firewall-Konfiguration erstellen..."
-  run_command "sudo cp /etc/default/ufw /etc/default/ufw.bak"
+  run_ssh_command_with_password "sudo cp /etc/default/ufw /etc/default/ufw.bak"
   check_command $?
   
   echo "Zurücksetzen aller vorhandenen Regeln..."
-  run_command "sudo ufw --force reset"
+  run_ssh_command_with_password "sudo ufw --force reset"
   check_command $?
   
   echo "Setzen der Default-Deny-Regel..."
-  run_command "sudo ufw default deny incoming && sudo ufw default allow outgoing"
+  run_ssh_command_with_password "sudo ufw default deny incoming && sudo ufw default allow outgoing"
   check_command $?
   
   echo "Öffnen von Port $NEW_SSH_PORT für SSH..."
-  run_command "sudo ufw allow $NEW_SSH_PORT/tcp"
+  run_ssh_command_with_password "sudo ufw allow $NEW_SSH_PORT/tcp"
   check_command $?
   
   echo "Aktivieren der Firewall..."
-  run_command "sudo ufw --force enable"
+  run_ssh_command_with_password "sudo ufw --force enable"
   check_command $?
   
   # Prüfe, ob Firewall aktiv ist
   echo "Prüfe Firewall-Status..."
-  run_command "sudo ufw status | grep -E 'Status:'"
-  if run_command "sudo ufw status | grep -q 'Status: active'"; then
+  run_ssh_command_with_password "sudo ufw status | grep -E 'Status:'"
+  if run_ssh_command_with_password "sudo ufw status | grep -q 'Status: active'"; then
     echo -e "${GREEN}✓ Firewall ist aktiv${NC}"
   else
     echo -e "${RED}✗ Firewall scheint nicht aktiv zu sein${NC}"
   fi
   
   echo -e "\n${YELLOW}Firewall-Status und Regeln:${NC}"
-  run_command "sudo ufw status verbose"
+  run_ssh_command_with_password "sudo ufw status verbose"
+  
+  # Jetzt testen wir die SSH-Verbindung mit dem neuen Port
+  echo "Teste Verbindung zum neuen SSH-Port..."
+  sleep 3  # Warte kurz, bis die Änderungen wirksam werden
+  
+  # Versuche, eine Verbindung auf dem neuen Port herzustellen
+  if ssh -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &> /dev/null; then
+    echo -e "${GREEN}✓ SSH-Verbindung auf Port $NEW_SSH_PORT erfolgreich${NC}"
+    # Den SSH-Status auf gehärteten Zustand setzen
+    SSH_HARDENED=true
+    echo -e "\n${GREEN}SSH-Härtung und Firewall-Konfiguration abgeschlossen. SSH läuft jetzt auf Port $NEW_SSH_PORT mit Key-Authentifizierung.${NC}"
+  else
+    echo -e "${RED}✗ SSH-Verbindung auf Port $NEW_SSH_PORT fehlgeschlagen${NC}"
+    echo -e "${RED}Bitte überprüfen Sie die Netzwerkverbindung und Firewall-Einstellungen. Ein Neustart des Servers könnte erforderlich sein.${NC}"
+    
+    # Hier können wir nicht einfach die SSH-Konfiguration wiederherstellen,
+    # da die Firewall bereits konfiguriert ist und Port 22 möglicherweise blockiert ist
+    echo -e "${YELLOW}Versuchen Sie das Skript erneut auszuführen, nachdem Sie den Server neu gestartet haben.${NC}"
+    return 1
+  fi
   
   pause_for_screenshot
 }
@@ -1044,8 +1045,10 @@ main_menu() {
       8) test_banner_grabbing ;;
       9) 
         setup_auto_updates
+        # Führe SSH-Härtung und Firewall-Konfiguration in der richtigen Reihenfolge aus
         setup_ssh_hardening
         setup_firewall
+        # Fortsetzen mit den restlichen Aufgaben
         generate_security_checklist
         setup_additional_hardening
         setup_webserver
