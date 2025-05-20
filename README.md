@@ -1,16 +1,30 @@
 # gibb-hf-sa1
+Setup Guide für GIBB SA1 LB1
 
 ## Server hardening
 
+**Ziel**  
+Proaktiver Schutz des Ubuntu/Debian-Servers durch Härtungsmassnahmen.
+
+### Voraussetzungen
+- SSH-Zugang mit sudo-Rechten  
+- Internetverbindung für Paket-Updates  
+- Testumgebung (empfohlen)
+
+### Ausführung
+#### 1. Skript herunterladen
 ```bash
 wget https://raw.githubusercontent.com/OJDevLab/gibb-hf-sa1/refs/heads/main/setup.sh -O remote_hardening.sh
 ```
+#### 2. Ausführungsrechte setzen
 ```bash
 chmod +x remote_hardening.sh
 ```
+#### 3. Abhängigkeiten installieren
 ```bash
 sudo apt update && sudo apt install -y sshpass
 ```
+#### 4. Härtungsskript starten
 ```bash
 ./remote_hardening.sh
 ```
