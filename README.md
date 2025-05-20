@@ -9,7 +9,7 @@ Proaktiver Schutz des Ubuntu/Debian-Servers durch Härtungsmassnahmen.
 ### Voraussetzungen
 - SSH-Zugang mit sudo-Rechten  
 - Internetverbindung für Paket-Updates  
-- Testumgebung (empfohlen)
+- Testumgebung
 
 ### Ausführung
 #### 1. Skript herunterladen
