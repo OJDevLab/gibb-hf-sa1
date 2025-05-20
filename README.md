@@ -9,7 +9,7 @@ Proaktiver Schutz des Ubuntu/Debian-Servers durch Härtungsmassnahmen.
 ### Voraussetzungen
 - SSH-Zugang mit sudo-Rechten  
 - Internetverbindung für Paket-Updates  
-- Testumgebung
+- Testumgebung mit li232-vmKL1, li223-vmLM1 und if227-vmLF1
 
 ### Ausführung
 #### 1. Skript herunterladen
