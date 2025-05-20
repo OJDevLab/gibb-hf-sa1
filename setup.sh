@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Create log file with timestamp
+LOG_FILE="$HOME/hfi_sa_hardening_$(date +"%Y%m%d_%H%M%S").log"
+echo "Script started at $(date)" > "$LOG_FILE"
+
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 # Fernzugriff-Skript für HFI_SA Server-Härtung
 # Ausführung auf vmKL1 (Kali Linux)
 
