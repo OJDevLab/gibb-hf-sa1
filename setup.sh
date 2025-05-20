@@ -1,9 +1,13 @@
 #!/bin/bash
 
-# Create log file with timestamp
-LOG_FILE="$HOME/hfi_sa_hardening_$(date +"%Y%m%d_%H%M%S").log"
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# Create log file with timestamp in the same directory as the script
+LOG_FILE="$SCRIPT_DIR/hfi_sa_hardening_$(date +"%Y%m%d_%H%M%S").log"
 echo "Script started at $(date)" > "$LOG_FILE"
 
+# Execute the original script and tee its output to the log file
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 # Fernzugriff-Skript für HFI_SA Server-Härtung
