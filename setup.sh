@@ -296,6 +296,7 @@ EOF
 }
 
 # Aufgabe 3: Firewall konfigurieren
+# Aufgabe 3: Firewall konfigurieren
 setup_firewall() {
   print_section "Aufgabe 3: Firewall mit Default Deny konfigurieren"
   
@@ -326,12 +327,16 @@ setup_firewall() {
   run_ssh_command_with_password "sudo ufw allow $NEW_SSH_PORT/tcp"
   check_command $?
   
-  echo "Aktivieren der Firewall..."
+  echo "Temporäres Offenhalten von Port 22 für die Übergangsphase..."
+  run_ssh_command_with_password "sudo ufw allow 22/tcp"
+  check_command $?
+  
+  echo "Aktivieren der Firewall mit beiden offenen Ports..."
   run_ssh_command_with_password "sudo ufw --force enable"
   check_command $?
   
   # Prüfe, ob Firewall aktiv ist
-  echo "Prüfe Firewall-Status..."
+  echo "Prüfe Firewall-Status über Port 22..."
   run_ssh_command_with_password "sudo ufw status | grep -E 'Status:'"
   if run_ssh_command_with_password "sudo ufw status | grep -q 'Status: active'"; then
     echo -e "${GREEN}✓ Firewall ist aktiv${NC}"
@@ -339,7 +344,7 @@ setup_firewall() {
     echo -e "${RED}✗ Firewall scheint nicht aktiv zu sein${NC}"
   fi
   
-  echo -e "\n${YELLOW}Firewall-Status und Regeln:${NC}"
+  echo -e "\n${YELLOW}Firewall-Status und Regeln (beide Ports offen):${NC}"
   run_ssh_command_with_password "sudo ufw status verbose"
   
   # Jetzt testen wir die SSH-Verbindung mit dem neuen Port
@@ -349,16 +354,24 @@ setup_firewall() {
   # Versuche, eine Verbindung auf dem neuen Port herzustellen
   if ssh -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &> /dev/null; then
     echo -e "${GREEN}✓ SSH-Verbindung auf Port $NEW_SSH_PORT erfolgreich${NC}"
+    
     # Den SSH-Status auf gehärteten Zustand setzen
     SSH_HARDENED=true
+    
+    # Jetzt können wir sicher Port 22 schließen, da wir über Port 23344 kommunizieren können
+    echo "Schließe Port 22, da die Verbindung über Port $NEW_SSH_PORT funktioniert..."
+    # Wichtig: Wir verwenden jetzt run_command, welches mit SSH_HARDENED=true den neuen Port verwendet
+    run_command "sudo ufw delete allow 22/tcp"
+    check_command $?
+    
+    echo -e "\n${YELLOW}Endgültiger Firewall-Status (nur Port $NEW_SSH_PORT offen):${NC}"
+    run_command "sudo ufw status verbose"
+    
     echo -e "\n${GREEN}SSH-Härtung und Firewall-Konfiguration abgeschlossen. SSH läuft jetzt auf Port $NEW_SSH_PORT mit Key-Authentifizierung.${NC}"
   else
     echo -e "${RED}✗ SSH-Verbindung auf Port $NEW_SSH_PORT fehlgeschlagen${NC}"
-    echo -e "${RED}Bitte überprüfen Sie die Netzwerkverbindung und Firewall-Einstellungen. Ein Neustart des Servers könnte erforderlich sein.${NC}"
-    
-    # Hier können wir nicht einfach die SSH-Konfiguration wiederherstellen,
-    # da die Firewall bereits konfiguriert ist und Port 22 möglicherweise blockiert ist
-    echo -e "${YELLOW}Versuchen Sie das Skript erneut auszuführen, nachdem Sie den Server neu gestartet haben.${NC}"
+    echo -e "${YELLOW}Port 22 bleibt sicherheitshalber offen, damit Sie nicht ausgesperrt werden.${NC}"
+    echo -e "${YELLOW}Bitte überprüfen Sie die SSH-Konfiguration manuell und schließen Sie Port 22, wenn alles funktioniert.${NC}"
     return 1
   fi
   
