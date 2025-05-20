@@ -3,7 +3,7 @@
 ### Server hardening
 
 ```bash
-Lorem
+wget https://github.com/OJDevLab/gibb-hf-sa1/blob/main/setup.sh -O remote_hardening.sh
 ```
 
 #### Verify Setup
