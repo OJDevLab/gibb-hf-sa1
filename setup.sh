@@ -38,6 +38,23 @@ pause_for_screenshot() {
   read -p ""
 }
 
+# Funktion zum Löschen von SSH-Daten
+clean_ssh_data() {
+  echo "Lösche alte SSH-Verbindungsdaten..."
+  
+  # Host-Key für die Ziel-IP aus known_hosts entfernen
+  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "$SERVER_IP" 2>/dev/null || true
+  
+  # Optional: Falls auch der Hostname in known_hosts eingetragen ist
+  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "li223-vmLM1" 2>/dev/null || true
+  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "vmlm1" 2>/dev/null || true
+  
+  echo -e "${GREEN}✓ SSH-Verbindungsdaten wurden bereinigt${NC}"
+}
+
+# Diese Funktion ganz am Anfang des Scripts aufrufen, vor allen anderen Funktionen
+clean_ssh_data
+
 # SSH-Befehl mit Passwort (für die erste Verbindung)
 run_ssh_command_with_password() {
   # Führt den Befehl mit Timeout aus und gibt Exit-Status zurück
