@@ -200,39 +200,43 @@ setup_auto_updates() {
 
 # Aufgabe 2: SSH-Härtung
 setup_ssh_hardening() {
+  set -x  # Enable debug mode to show commands as they execute
+  
   print_section "Aufgabe 2: SSH-Härtung konfigurieren"
   
   # Prüfe Konnektivität
-  check_server_connectivity || return 1
+  echo "DEBUG: Checking server connectivity"
+  check_server_connectivity || { echo "DEBUG: Connectivity check failed"; return 1; }
   
   echo "1. SSH-Key auf vmKL1 generieren..."
   if [ ! -f ~/.ssh/id_ed25519 ]; then
     ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
-    check_command $?
+    echo "DEBUG: Key generation exit code: $?"
   else
     echo -e "${GREEN}✓ SSH-Key existiert bereits.${NC}"
   fi
   
   echo "2. Vorbereitung der SSH-Verzeichnisse auf vmLM1..."
   run_ssh_command_with_password "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
-  check_command $?
+  echo "DEBUG: SSH directory preparation exit code: $?"
   
   echo "3. SSH-Key auf vmLM1 kopieren..."
   mkdir -p ~/.ssh/temp
   cat ~/.ssh/id_ed25519.pub > ~/.ssh/temp/authorized_keys
-  sshpass -p "$PASSWORD" scp -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT ~/.ssh/temp/authorized_keys $USERNAME@$SERVER_IP:~/.ssh/authorized_keys
-  check_command $?
+  echo "DEBUG: About to copy SSH key to server"
+  sshpass -p "$PASSWORD" scp -v -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT ~/.ssh/temp/authorized_keys $USERNAME@$SERVER_IP:~/.ssh/authorized_keys
+  echo "DEBUG: SCP key copy exit code: $?"
   
   echo "4. Berechtigungen auf vmLM1 setzen..."
   run_ssh_command_with_password "chmod 600 ~/.ssh/authorized_keys"
-  check_command $?
+  echo "DEBUG: Set permissions exit code: $?"
   
   echo "5. Backup der SSH-Konfiguration erstellen..."
   # Erstelle ein lokales Backup der aktuellen SSH-Konfiguration
   backup_remote_file "/etc/ssh/sshd_config"
   # Erstelle auch ein Backup auf dem Server
   run_ssh_command_with_password "sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak"
-  check_command $?
+  echo "DEBUG: Backup creation exit code: $?"
   
   echo "6. SSH-Konfiguration für Härtung erstellen..."
   cat > ssh_config_new << EOF
@@ -263,25 +267,32 @@ Subsystem sftp /usr/lib/openssh/sftp-server
 EOF
 
   echo "7. SSH-Konfiguration auf vmLM1 übertragen..."
-  sshpass -p "$PASSWORD" scp -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT ssh_config_new $USERNAME@$SERVER_IP:~/sshd_config
-  check_command $?
+  sshpass -p "$PASSWORD" scp -v -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT ssh_config_new $USERNAME@$SERVER_IP:~/sshd_config
+  echo "DEBUG: SCP config file exit code: $?"
   
   echo "8. SSH-Konfiguration auf vmLM1 anwenden..."
   run_ssh_command_with_password "sudo mv ~/sshd_config /etc/ssh/sshd_config && sudo chmod 644 /etc/ssh/sshd_config"
-  check_command $?
+  echo "DEBUG: Apply SSH config exit code: $?"
   
   echo "9. Neustart des SSH-Dienstes..."
   run_ssh_command_with_password "sudo systemctl restart ssh"
-  check_command $?
+  echo "DEBUG: SSH restart exit code: $?"
   
   echo "10. Teste Verbindung zum neuen SSH-Port..."
-  sleep 3  # Warte kurz, bis der SSH-Dienst neu gestartet ist
+  echo "DEBUG: Waiting for SSH service to restart"
+  sleep 5  # Warte länger, bis der SSH-Dienst neu gestartet ist
   
   # Versuche, eine Verbindung auf dem neuen Port herzustellen
-  if ssh -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &> /dev/null; then
+  echo "DEBUG: Attempting connection on new port $NEW_SSH_PORT"
+  ssh -v -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'"
+  ssh_test_result=$?
+  echo "DEBUG: SSH test connection exit code: $ssh_test_result"
+  
+  if [ $ssh_test_result -eq 0 ]; then
     echo -e "${GREEN}✓ SSH-Verbindung auf Port $NEW_SSH_PORT erfolgreich${NC}"
     # Den SSH-Status auf gehärteten Zustand setzen
     SSH_HARDENED=true
+    echo "DEBUG: SSH_HARDENED set to true"
   else
     echo -e "${RED}✗ SSH-Verbindung auf Port $NEW_SSH_PORT fehlgeschlagen${NC}"
     echo -e "${YELLOW}Versuche, SSH-Konfiguration wiederherzustellen...${NC}"
@@ -290,6 +301,7 @@ EOF
     run_ssh_command_with_password "sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config && sudo systemctl restart ssh"
     
     echo -e "${RED}Fehler: SSH-Härtung fehlgeschlagen. Die ursprüngliche Konfiguration wurde wiederhergestellt.${NC}"
+    echo "DEBUG: Attempted to restore original SSH config"
     return 1
   fi
   
@@ -301,57 +313,11 @@ EOF
   
   echo -e "\n${GREEN}SSH-Härtung abgeschlossen. SSH läuft jetzt auf Port $NEW_SSH_PORT mit Key-Authentifizierung.${NC}"
   
+  echo "DEBUG: About to call pause_for_screenshot"
   pause_for_screenshot
-}
-
-# Aufgabe 3: Firewall konfigurieren
-setup_firewall() {
-  print_section "Aufgabe 3: Firewall mit Default Deny konfigurieren"
+  echo "DEBUG: After pause_for_screenshot"
   
-  # Prüfe Konnektivität
-  check_server_connectivity || return 1
-  
-  echo "Installation der UFW Firewall..."
-  run_command "sudo apt install -y ufw"
-  check_command $?
-  
-  # Prüfe, ob UFW installiert wurde
-  run_command "dpkg -l | grep ufw"
-  check_command $? || echo -e "${YELLOW}Warnung: Installation konnte nicht verifiziert werden${NC}"
-  
-  echo "Backup der Firewall-Konfiguration erstellen..."
-  run_command "sudo cp /etc/default/ufw /etc/default/ufw.bak"
-  check_command $?
-  
-  echo "Zurücksetzen aller vorhandenen Regeln..."
-  run_command "sudo ufw --force reset"
-  check_command $?
-  
-  echo "Setzen der Default-Deny-Regel..."
-  run_command "sudo ufw default deny incoming && sudo ufw default allow outgoing"
-  check_command $?
-  
-  echo "Öffnen von Port $NEW_SSH_PORT für SSH..."
-  run_command "sudo ufw allow $NEW_SSH_PORT/tcp"
-  check_command $?
-  
-  echo "Aktivieren der Firewall..."
-  run_command "sudo ufw --force enable"
-  check_command $?
-  
-  # Prüfe, ob Firewall aktiv ist
-  echo "Prüfe Firewall-Status..."
-  run_command "sudo ufw status | grep -E 'Status:'"
-  if run_command "sudo ufw status | grep -q 'Status: active'"; then
-    echo -e "${GREEN}✓ Firewall ist aktiv${NC}"
-  else
-    echo -e "${RED}✗ Firewall scheint nicht aktiv zu sein${NC}"
-  fi
-  
-  echo -e "\n${YELLOW}Firewall-Status und Regeln:${NC}"
-  run_command "sudo ufw status verbose"
-  
-  pause_for_screenshot
+  set +x  # Disable debug mode
 }
 
 # ====================================================================
