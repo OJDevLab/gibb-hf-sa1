@@ -14,12 +14,3 @@ sudo apt update && sudo apt install -y sshpass
 ```bash
 ./remote_hardening.sh
 ```
-
-#### Verify Setup
-
-### DNS setup
-```bash
-Lorem
-```
-
-#### Verify Setup
