@@ -40,20 +40,25 @@ pause_for_screenshot() {
 
 # Funktion zum Löschen von SSH-Daten
 clean_ssh_data() {
-  echo "Lösche alte SSH-Verbindungsdaten..."
+  print_section "SSH-Verbindungsdaten löschen"
   
-  # Host-Key für die Ziel-IP aus known_hosts entfernen
-  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "$SERVER_IP" 2>/dev/null || true
+  echo "Lösche Host-Keys für $SERVER_IP..."
+  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "$SERVER_IP" 2>/dev/null
+  status_ip=$?
   
-  # Optional: Falls auch der Hostname in known_hosts eingetragen ist
-  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "li223-vmLM1" 2>/dev/null || true
-  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "vmlm1" 2>/dev/null || true
+  echo "Lösche Host-Keys für Hostnamen (li223-vmLM1, vmlm1)..."
+  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "li223-vmLM1" 2>/dev/null
+  ssh-keygen -f "$HOME/.ssh/known_hosts" -R "vmlm1" 2>/dev/null
   
-  echo -e "${GREEN}✓ SSH-Verbindungsdaten wurden bereinigt${NC}"
+  if [ $status_ip -eq 0 ]; then
+    echo -e "${GREEN}✓ SSH-Verbindungsdaten wurden erfolgreich bereinigt${NC}"
+  else
+    echo -e "${YELLOW}ℹ Keine Einträge für $SERVER_IP gefunden oder bereits gelöscht${NC}"
+  fi
+  
+  echo -e "\n${YELLOW}Drücke ENTER um fortzufahren...${NC}"
+  read -p ""
 }
-
-# Diese Funktion ganz am Anfang des Scripts aufrufen, vor allen anderen Funktionen
-clean_ssh_data
 
 # SSH-Befehl mit Passwort (für die erste Verbindung)
 run_ssh_command_with_password() {
@@ -1013,9 +1018,10 @@ main_menu() {
     echo "7. DNS-Server konfigurieren"
     echo "8. Banner Grabbing testen & unterbinden"
     echo "9. Alle Aufgaben sequentiell ausführen"
+    echo "10. SSH-Verbindungsdaten löschen (bei Host-Key-Problemen)"
     echo "0. Beenden"
     
-    read -p "Wähle eine Option (0-9): " option
+    read -p "Wähle eine Option (0-10): " option
     
     case $option in
       1) setup_auto_updates ;;
@@ -1036,6 +1042,7 @@ main_menu() {
         setup_dns_server
         test_banner_grabbing
         ;;
+      10) clean_ssh_data ;;
       0) 
         echo -e "\n${GREEN}Script beendet. Viel Erfolg bei der Prüfung!${NC}"
         exit 0
