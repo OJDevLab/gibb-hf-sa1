@@ -28,7 +28,7 @@ sudo apt update && sudo apt install -y sshpass
 ```bash
 ./remote_hardening.sh
 ```
-#### 4.1 Härtungsskript mit Logfile starten
+##### 4.1 Härtungsskript mit Logfile starten
 ```bash
 ./remote_hardening.sh 2>&1 | tee hfi_sa_hardening_$(date +"%Y%m%d_%H%M%S").log
 ```
