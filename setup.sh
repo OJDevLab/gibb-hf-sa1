@@ -296,59 +296,83 @@ EOF
 }
 
 # Aufgabe 3: Firewall konfigurieren
-# Aufgabe 3: Firewall konfigurieren
 setup_firewall() {
   print_section "Aufgabe 3: Firewall mit Default Deny konfigurieren"
+  
+  # Prüfe SSH-Zugang (Port 22 oder 23344)
+  echo "Prüfe SSH-Verbindungsstatus..."
+  
+  # Erst versuchen auf Port 22 zu verbinden (Standard)
+  if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o BatchMode=yes $USERNAME@$SERVER_IP "echo 'SSH auf Port 22 funktioniert'" &> /dev/null; then
+    echo -e "${GREEN}✓ SSH auf Port 22 möglich - SSH Härtung wurde noch nicht abgeschlossen${NC}"
+    SSH_HARDENED=false
+    # Wir setzen nun die Variable für später
+    echo "Setze SSH_HARDENED=false (Standard-SSH-Port)"
+  else
+    # Dann versuchen auf Port 23344 mit Key zu verbinden
+    if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p 23344 $USERNAME@$SERVER_IP "echo 'SSH auf Port 23344 funktioniert'" &> /dev/null; then
+      echo -e "${GREEN}✓ SSH auf Port 23344 möglich - SSH Härtung bereits abgeschlossen${NC}"
+      SSH_HARDENED=true
+      # Wir setzen nun die Variable für später
+      echo "Setze SSH_HARDENED=true (SSH läuft bereits auf Port 23344)"
+    else
+      echo -e "${RED}✗ Keine SSH-Verbindung möglich! Überprüfe die Server-Verbindung.${NC}"
+      return 1
+    fi
+  fi
   
   # Prüfe Konnektivität
   check_server_connectivity || return 1
   
   echo "Installation der UFW Firewall..."
-  run_ssh_command_with_password "sudo apt install -y ufw"
+  run_command "sudo apt install -y ufw"
   check_command $?
   
   # Prüfe, ob UFW installiert wurde
-  run_ssh_command_with_password "dpkg -l | grep ufw"
+  run_command "dpkg -l | grep ufw"
   check_command $? || echo -e "${YELLOW}Warnung: Installation konnte nicht verifiziert werden${NC}"
   
   echo "Backup der Firewall-Konfiguration erstellen..."
-  run_ssh_command_with_password "sudo cp /etc/default/ufw /etc/default/ufw.bak"
+  run_command "sudo cp /etc/default/ufw /etc/default/ufw.bak"
   check_command $?
   
   echo "Zurücksetzen aller vorhandenen Regeln..."
-  run_ssh_command_with_password "sudo ufw --force reset"
+  run_command "sudo ufw --force reset"
   check_command $?
   
   echo "Setzen der Default-Deny-Regel..."
-  run_ssh_command_with_password "sudo ufw default deny incoming && sudo ufw default allow outgoing"
+  run_command "sudo ufw default deny incoming && sudo ufw default allow outgoing"
   check_command $?
   
   echo "Öffnen von Port $NEW_SSH_PORT für SSH..."
-  run_ssh_command_with_password "sudo ufw allow $NEW_SSH_PORT/tcp"
+  run_command "sudo ufw allow $NEW_SSH_PORT/tcp"
   check_command $?
   
-  echo "Temporäres Offenhalten von Port 22 für die Übergangsphase..."
-  run_ssh_command_with_password "sudo ufw allow 22/tcp"
-  check_command $?
+  # Nur wenn SSH noch auf Port 22 läuft, diesen temporär offen halten
+  if [ "$SSH_HARDENED" = false ]; then
+    echo "Temporäres Offenhalten von Port 22 für die Übergangsphase..."
+    run_command "sudo ufw allow 22/tcp"
+    check_command $?
+  fi
   
   echo "Aktivieren der Firewall mit beiden offenen Ports..."
-  run_ssh_command_with_password "sudo ufw --force enable"
+  run_command "sudo ufw --force enable"
   check_command $?
   
   # Prüfe, ob Firewall aktiv ist
-  echo "Prüfe Firewall-Status über Port 22..."
-  run_ssh_command_with_password "sudo ufw status | grep -E 'Status:'"
-  if run_ssh_command_with_password "sudo ufw status | grep -q 'Status: active'"; then
+  echo "Prüfe Firewall-Status..."
+  run_command "sudo ufw status | grep -E 'Status:'"
+  if run_command "sudo ufw status | grep -q 'Status: active'"; then
     echo -e "${GREEN}✓ Firewall ist aktiv${NC}"
   else
     echo -e "${RED}✗ Firewall scheint nicht aktiv zu sein${NC}"
   fi
   
-  echo -e "\n${YELLOW}Firewall-Status und Regeln (beide Ports offen):${NC}"
-  run_ssh_command_with_password "sudo ufw status verbose"
+  echo -e "\n${YELLOW}Firewall-Status und Regeln:${NC}"
+  run_command "sudo ufw status verbose"
   
   # Jetzt testen wir die SSH-Verbindung mit dem neuen Port
-  echo "Teste Verbindung zum neuen SSH-Port..."
+  echo "Teste Verbindung zum SSH-Port $NEW_SSH_PORT..."
   sleep 3  # Warte kurz, bis die Änderungen wirksam werden
   
   # Versuche, eine Verbindung auf dem neuen Port herzustellen
@@ -358,11 +382,13 @@ setup_firewall() {
     # Den SSH-Status auf gehärteten Zustand setzen
     SSH_HARDENED=true
     
-    # Jetzt können wir sicher Port 22 schließen, da wir über Port 23344 kommunizieren können
-    echo "Schließe Port 22, da die Verbindung über Port $NEW_SSH_PORT funktioniert..."
-    # Wichtig: Wir verwenden jetzt run_command, welches mit SSH_HARDENED=true den neuen Port verwendet
-    run_command "sudo ufw delete allow 22/tcp"
-    check_command $?
+    # Wenn wir zuvor auf Port 22 waren und jetzt auf 23344 wechseln konnten, können wir Port 22 schließen
+    if [ "$(run_command "sudo ufw status | grep -c '22/tcp')" -gt 0 ]; then
+      echo "Schließe Port 22, da die Verbindung über Port $NEW_SSH_PORT funktioniert..."
+      # Wichtig: Wir verwenden jetzt run_command, welches mit SSH_HARDENED=true den neuen Port verwendet
+      run_command "sudo ufw delete allow 22/tcp"
+      check_command $?
+    fi
     
     echo -e "\n${YELLOW}Endgültiger Firewall-Status (nur Port $NEW_SSH_PORT offen):${NC}"
     run_command "sudo ufw status verbose"
@@ -370,8 +396,13 @@ setup_firewall() {
     echo -e "\n${GREEN}SSH-Härtung und Firewall-Konfiguration abgeschlossen. SSH läuft jetzt auf Port $NEW_SSH_PORT mit Key-Authentifizierung.${NC}"
   else
     echo -e "${RED}✗ SSH-Verbindung auf Port $NEW_SSH_PORT fehlgeschlagen${NC}"
-    echo -e "${YELLOW}Port 22 bleibt sicherheitshalber offen, damit Sie nicht ausgesperrt werden.${NC}"
-    echo -e "${YELLOW}Bitte überprüfen Sie die SSH-Konfiguration manuell und schließen Sie Port 22, wenn alles funktioniert.${NC}"
+    if [ "$SSH_HARDENED" = true ]; then
+      echo -e "${YELLOW}WARNUNG: Die SSH-Härtung war bereits abgeschlossen, aber die Verbindung auf Port $NEW_SSH_PORT scheint jetzt nicht zu funktionieren.${NC}"
+      echo -e "${YELLOW}Bitte überprüfen Sie die Firewall- und SSH-Konfiguration manuell.${NC}"
+    else
+      echo -e "${YELLOW}Port 22 bleibt sicherheitshalber offen, damit Sie nicht ausgesperrt werden.${NC}"
+      echo -e "${YELLOW}Bitte überprüfen Sie die SSH-Konfiguration manuell und schließen Sie Port 22, wenn alles funktioniert.${NC}"
+    fi
     return 1
   fi
   
