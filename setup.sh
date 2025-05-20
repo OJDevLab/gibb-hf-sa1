@@ -991,4 +991,59 @@ main_menu() {
     echo "2. SSH-Härtung durchführen"
     echo "3. Firewall konfigurieren"
     echo "4. Checkliste für Sicherheitspolicy generieren"
-    echo "5. Erweiterte Härtungsmaßnahmen durchführ
+    echo "5. Erweiterte Härtungsmaßnahmen durchführen"
+    echo "6. Webserver installieren"
+    echo "7. DNS-Server konfigurieren"
+    echo "8. Banner Grabbing testen & unterbinden"
+    echo "9. Alle Aufgaben sequentiell ausführen"
+    echo "0. Beenden"
+    
+    read -p "Wähle eine Option (0-9): " option
+    
+    case $option in
+      1) setup_auto_updates ;;
+      2) setup_ssh_hardening ;;
+      3) setup_firewall ;;
+      4) generate_security_checklist ;;
+      5) setup_additional_hardening ;;
+      6) setup_webserver ;;
+      7) setup_dns_server ;;
+      8) test_banner_grabbing ;;
+      9) 
+        setup_auto_updates
+        setup_ssh_hardening
+        setup_firewall
+        generate_security_checklist
+        setup_additional_hardening
+        setup_webserver
+        setup_dns_server
+        test_banner_grabbing
+        ;;
+      0) 
+        echo -e "\n${GREEN}Script beendet. Viel Erfolg bei der Prüfung!${NC}"
+        exit 0
+        ;;
+      *) 
+        echo -e "\n${RED}Ungültige Option. Bitte erneut versuchen.${NC}"
+        sleep 2
+        ;;
+    esac
+  done
+}
+
+# Erstelle Backup-Verzeichnis
+mkdir -p "$BACKUP_DIR"
+
+# Prüfen, ob sshpass installiert ist
+if ! command -v sshpass &> /dev/null; then
+  echo "sshpass wird benötigt. Installation wird versucht..."
+  sudo apt update && sudo apt install -y sshpass
+  if [ $? -ne 0 ]; then
+    echo "Fehler: sshpass konnte nicht installiert werden. Bitte installiere es manuell:"
+    echo "sudo apt update && sudo apt install -y sshpass"
+    exit 1
+  fi
+fi
+
+# Starte das Hauptmenü
+main_menu
