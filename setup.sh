@@ -283,9 +283,38 @@ EOF
   run_ssh_command_with_password "sudo mv ~/sshd_config /etc/ssh/sshd_config && sudo chmod 644 /etc/ssh/sshd_config"
   check_command $?
   
-  echo "9. Neustart des SSH-Dienstes..."
-  run_ssh_command_with_password "sudo systemctl restart ssh"
+  echo "9. Vollständiger Neustart des SSH-Dienstes..."
+  # Erst stoppen
+  run_ssh_command_with_password "sudo systemctl stop ssh"
   check_command $?
+  
+  echo "   SSH-Dienst gestoppt. Starte SSH-Dienst..."
+  # Dann starten
+  run_ssh_command_with_password "sudo systemctl start ssh"
+  check_command $?
+  
+  echo "   Warte 10 Sekunden, damit SSH auf dem neuen Port starten kann..."
+  sleep 10
+  
+  echo "10. Überprüfe, ob SSH auf Port $NEW_SSH_PORT läuft..."
+  if run_ssh_command_with_password "sudo netstat -tulpn | grep -q ':$NEW_SSH_PORT'"; then
+    echo -e "${GREEN}✓ SSH läuft jetzt auf Port $NEW_SSH_PORT${NC}"
+  else
+    echo -e "${YELLOW}Warnung: SSH scheint nicht auf Port $NEW_SSH_PORT zu laufen.${NC}"
+    echo -e "${YELLOW}Versuche einen erneuten Neustart...${NC}"
+    
+    # Versuche es nochmal mit einem vollständigen Neustart
+    run_ssh_command_with_password "sudo systemctl restart ssh && sudo systemctl daemon-reload"
+    sleep 5
+    
+    # Prüfe nochmal
+    if run_ssh_command_with_password "sudo netstat -tulpn | grep -q ':$NEW_SSH_PORT'"; then
+      echo -e "${GREEN}✓ SSH läuft jetzt auf Port $NEW_SSH_PORT${NC}"
+    else
+      echo -e "${RED}✗ SSH läuft nicht auf Port $NEW_SSH_PORT.${NC}"
+      echo -e "${YELLOW}Falls Probleme bestehen, versuche einen Neustart des Servers mit 'sudo reboot'.${NC}"
+    fi
+  fi
   
   echo -e "\n${YELLOW}SSH-Konfiguration angewendet. Nun muss die Firewall konfiguriert werden,${NC}"
   echo -e "${YELLOW}bevor eine Verbindung über Port $NEW_SSH_PORT möglich ist.${NC}"
