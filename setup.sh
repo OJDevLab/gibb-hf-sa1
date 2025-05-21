@@ -209,7 +209,6 @@ setup_auto_updates() {
 }
 
 # Aufgabe 2: SSH-Härtung
-# Aufgabe 2: SSH-Härtung
 setup_ssh_hardening() {
   print_section "Aufgabe 2: SSH-Härtung konfigurieren"
   
@@ -246,10 +245,10 @@ setup_ssh_hardening() {
   check_command $?
   
   echo "6. SSH-Konfiguration für Härtung erstellen..."
-  cat > ssh_config_new << EOF
+  cat > ssh_config_new << 'EOF'
 # SSH Configuration with Hardened Security Settings
 Protocol 2
-Port $NEW_SSH_PORT
+Port NEW_SSH_PORT
 HostKey /etc/ssh/ssh_host_ed25519_key
 HostKey /etc/ssh/ssh_host_ecdsa_key
 HostKey /etc/ssh/ssh_host_rsa_key
@@ -272,6 +271,9 @@ PrintMotd no
 AcceptEnv LANG LC_*
 Subsystem sftp /usr/lib/openssh/sftp-server
 EOF
+
+  # Replace the placeholder with the actual port number
+  sed -i "s/NEW_SSH_PORT/$NEW_SSH_PORT/g" ssh_config_new
 
   echo "7. SSH-Konfiguration auf vmLM1 übertragen..."
   sshpass -p "$PASSWORD" scp -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT ssh_config_new $USERNAME@$SERVER_IP:~/sshd_config
