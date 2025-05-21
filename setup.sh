@@ -385,7 +385,8 @@ setup_firewall() {
     SSH_HARDENED=true
     
     # Wenn wir zuvor auf Port 22 waren und jetzt auf 23344 wechseln konnten, können wir Port 22 schließen
-    if [ "$(run_command "sudo ufw status | grep -c '22/tcp')" -gt 0 ]; then
+    tcp_count=$(run_command "sudo ufw status | grep -c '22/tcp'")
+    if [ "$tcp_count" -gt 0 ]; then
       echo "Schließe Port 22, da die Verbindung über Port $NEW_SSH_PORT funktioniert..."
       # Wichtig: Wir verwenden jetzt run_command, welches mit SSH_HARDENED=true den neuen Port verwendet
       run_command "sudo ufw delete allow 22/tcp"
