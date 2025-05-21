@@ -405,14 +405,69 @@ setup_firewall() {
   echo -e "\n${YELLOW}Firewall-Status und Regeln:${NC}"
   run_command "sudo ufw status verbose"
   
+  # Server-Neustart durchführen, damit SSH-Port-Änderung wirksam wird
+  echo -e "\n${YELLOW}Server-Neustart erforderlich, damit die SSH-Konfiguration wirksam wird...${NC}"
+  echo -e "${RED}WARNUNG: Der Server wird jetzt neu gestartet! Die SSH-Verbindung wird unterbrochen.${NC}"
+  echo -e "${YELLOW}Das Skript wartet, bis der Server wieder verfügbar ist.${NC}"
+  echo -e "Drücke ENTER, um den Neustart zu bestätigen, oder STRG+C zum Abbrechen..."
+  read -p ""
+  
+  # Führe Neustart durch
+  run_command "sudo reboot"
+  
+  echo "Server wird neu gestartet. Warte, bis der Server nicht mehr erreichbar ist..."
+  
+  # Warte, bis der Server nicht mehr pingbar ist (Neustart begonnen)
+  while ping -c 1 -W 1 $SERVER_IP &> /dev/null; do
+    echo -n "."
+    sleep 1
+  done
+  echo ""
+  echo "Server ist offline gegangen. Warte auf Wiederverbindung..."
+  
+  # Warte, bis der Server wieder pingbar ist
+  local retry_count=0
+  local max_retries=90  # 90 Sekunden Timeout (ca. 1,5 Minuten)
+  while [ $retry_count -lt $max_retries ]; do
+    if ping -c 1 -W 1 $SERVER_IP &> /dev/null; then
+      echo -e "${GREEN}✓ Server ist wieder online${NC}"
+      break
+    fi
+    echo -n "."
+    retry_count=$((retry_count + 1))
+    sleep 1
+  done
+  
+  if [ $retry_count -ge $max_retries ]; then
+    echo -e "${RED}✗ Timeout beim Warten auf den Server-Neustart${NC}"
+    echo -e "${YELLOW}Bitte prüfen Sie manuell, ob der Server wieder verfügbar ist${NC}"
+    return 1
+  fi
+  
+  # Warte weitere 30 Sekunden, damit alle Dienste vollständig starten können
+  echo "Warte 30 Sekunden, damit alle Dienste vollständig starten können..."
+  sleep 30
+  
   # Jetzt testen wir die SSH-Verbindung mit dem neuen Port
   echo "Teste Verbindung zum SSH-Port $NEW_SSH_PORT..."
-  sleep 3  # Warte kurz, bis die Änderungen wirksam werden
   
-  # Versuche, eine Verbindung auf dem neuen Port herzustellen
-  if ssh -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &> /dev/null; then
-    echo -e "${GREEN}✓ SSH-Verbindung auf Port $NEW_SSH_PORT erfolgreich${NC}"
-    
+  # Wir müssen ein paar Mal probieren, da SSH manchmal etwas Zeit braucht, um vollständig zu starten
+  local ssh_retry_count=0
+  local ssh_max_retries=10
+  local ssh_connected=false
+  
+  while [ $ssh_retry_count -lt $ssh_max_retries ]; do
+    if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &> /dev/null; then
+      echo -e "${GREEN}✓ SSH-Verbindung auf Port $NEW_SSH_PORT erfolgreich${NC}"
+      ssh_connected=true
+      break
+    fi
+    echo "Versuch $((ssh_retry_count + 1))/$ssh_max_retries fehlgeschlagen. Warte 5 Sekunden..."
+    ssh_retry_count=$((ssh_retry_count + 1))
+    sleep 5
+  done
+  
+  if [ "$ssh_connected" = true ]; then
     # Den SSH-Status auf gehärteten Zustand setzen
     SSH_HARDENED=true
     
@@ -439,7 +494,7 @@ setup_firewall() {
     echo -e "\nWas möchten Sie tun?"
     echo "1. SSH-Konfiguration überprüfen"
     echo "2. SSH-Dienst neu starten"
-    echo "3. Server neu starten (Vorsicht!)"
+    echo "3. Erneuter Server-Neustart (Vorsicht!)"
     echo "4. Zum Hauptmenü zurückkehren"
     
     read -p "Wähle eine Option (1-4): " ssh_fix_option
@@ -487,7 +542,7 @@ setup_firewall() {
         fi
         ;;
       3)
-        echo -e "\n${RED}WARNUNG: Sie sind dabei, den Server neu zu starten!${NC}"
+        echo -e "\n${RED}WARNUNG: Sie sind dabei, den Server erneut neu zu starten!${NC}"
         echo -e "${YELLOW}Dies kann mehrere Minuten dauern und unterbricht laufende Verbindungen.${NC}"
         read -p "Sind Sie sicher? (j/n): " confirm_reboot
         
