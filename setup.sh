@@ -333,7 +333,77 @@ setup_firewall() {
   # Prüfe SSH-Verbindungsstatus...
   echo "Prüfe SSH-Verbindungsstatus..."
   
-  # Rest des Codes bleibt gleich bis zur SSH-Test-Verbindung...
+  # Erst versuchen auf Port 22 zu verbinden (Standard)
+  if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o BatchMode=yes $USERNAME@$SERVER_IP "echo 'SSH auf Port 22 funktioniert'" &> /dev/null; then
+    echo -e "${GREEN}✓ SSH auf Port 22 möglich - SSH Härtung wurde noch nicht abgeschlossen${NC}"
+    SSH_HARDENED=false
+    # Wir setzen nun die Variable für später
+    echo "Setze SSH_HARDENED=false (Standard-SSH-Port)"
+  else
+    # Dann versuchen auf Port 23344 mit Key zu verbinden
+    if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p 23344 $USERNAME@$SERVER_IP "echo 'SSH auf Port 23344 funktioniert'" &> /dev/null; then
+      echo -e "${GREEN}✓ SSH auf Port 23344 möglich - SSH Härtung bereits abgeschlossen${NC}"
+      SSH_HARDENED=true
+      # Wir setzen nun die Variable für später
+      echo "Setze SSH_HARDENED=true (SSH läuft bereits auf Port 23344)"
+    else
+      echo -e "${RED}✗ Keine SSH-Verbindung möglich! Überprüfe die Server-Verbindung.${NC}"
+      return 1
+    fi
+  fi
+  
+  # Prüfe Konnektivität
+  check_server_connectivity || return 1
+  
+  echo "Installation der UFW Firewall..."
+  run_command "sudo apt install -y ufw"
+  check_command $?
+  
+  # Prüfe, ob UFW installiert wurde
+  run_command "dpkg -l | grep ufw"
+  check_command $? || echo -e "${YELLOW}Warnung: Installation konnte nicht verifiziert werden${NC}"
+  
+  echo "Backup der Firewall-Konfiguration erstellen..."
+  run_command "sudo cp /etc/default/ufw /etc/default/ufw.bak"
+  check_command $?
+  
+  echo "Zurücksetzen aller vorhandenen Regeln..."
+  run_command "sudo ufw --force reset"
+  check_command $?
+  
+  echo "Setzen der Default-Deny-Regel..."
+  run_command "sudo ufw default deny incoming && sudo ufw default allow outgoing"
+  check_command $?
+  
+  echo "Öffnen von Port $NEW_SSH_PORT für SSH..."
+  run_command "sudo ufw allow $NEW_SSH_PORT/tcp"
+  check_command $?
+  
+  # Nur wenn SSH noch auf Port 22 läuft, diesen temporär offen halten
+  if [ "$SSH_HARDENED" = false ]; then
+    echo "Temporäres Offenhalten von Port 22 für die Übergangsphase..."
+    run_command "sudo ufw allow 22/tcp"
+    check_command $?
+  fi
+  
+  echo "Aktivieren der Firewall mit beiden offenen Ports..."
+  run_command "sudo ufw --force enable"
+  check_command $?
+  
+  # Prüfe, ob Firewall aktiv ist
+  echo "Prüfe Firewall-Status..."
+  run_command "sudo ufw status | grep -E 'Status:'"
+  
+  # Verwende eine Variable um das Ergebnis zu speichern
+  firewall_active=$(run_command "sudo ufw status | grep -q 'Status: active' && echo true || echo false")
+  if [ "$firewall_active" = "true" ]; then
+    echo -e "${GREEN}✓ Firewall ist aktiv${NC}"
+  else
+    echo -e "${RED}✗ Firewall scheint nicht aktiv zu sein${NC}"
+  fi
+  
+  echo -e "\n${YELLOW}Firewall-Status und Regeln:${NC}"
+  run_command "sudo ufw status verbose"
   
   # Jetzt testen wir die SSH-Verbindung mit dem neuen Port
   echo "Teste Verbindung zum SSH-Port $NEW_SSH_PORT..."
@@ -346,8 +416,9 @@ setup_firewall() {
     # Den SSH-Status auf gehärteten Zustand setzen
     SSH_HARDENED=true
     
-    # Wenn wir zuvor auf Port 22 waren und jetzt auf 23344 wechseln konnten, können wir Port 22 schließen
-    if [ "$(run_command "sudo ufw status | grep -c '22/tcp')" -gt 0 ]; then
+    # Prüfe ob Port 22 offen ist
+    has_port_22=$(run_command "sudo ufw status | grep -c '22/tcp' || echo 0")
+    if [ "$has_port_22" -gt 0 ]; then
       echo "Schließe Port 22, da die Verbindung über Port $NEW_SSH_PORT funktioniert..."
       # Wichtig: Wir verwenden jetzt run_command, welches mit SSH_HARDENED=true den neuen Port verwendet
       run_command "sudo ufw delete allow 22/tcp"
@@ -448,6 +519,8 @@ setup_firewall() {
     echo -e "\n${YELLOW}Drücke ENTER um fortzufahren...${NC}"
     read -p ""
   fi
+  
+  pause_for_screenshot
 }
 
 # ====================================================================
