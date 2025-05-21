@@ -218,33 +218,60 @@ setup_ssh_hardening() {
   echo "1. SSH-Key auf vmKL1 generieren..."
   if [ ! -f ~/.ssh/id_ed25519 ]; then
     ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
-    check_command $?
+    if ! check_command $?; then
+      echo -e "${RED}✗ Fehler beim Generieren des SSH-Keys. Abbruch.${NC}"
+      return 1
+    fi
   else
     echo -e "${GREEN}✓ SSH-Key existiert bereits.${NC}"
   fi
   
   echo "2. Vorbereitung der SSH-Verzeichnisse auf vmLM1..."
   run_ssh_command_with_password "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler bei der Verzeichnisvorbereitung. Abbruch.${NC}"
+    return 1
+  fi
   
   echo "3. SSH-Key auf vmLM1 kopieren..."
   mkdir -p ~/.ssh/temp
   cat ~/.ssh/id_ed25519.pub > ~/.ssh/temp/authorized_keys
   sshpass -p "$PASSWORD" scp -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT ~/.ssh/temp/authorized_keys $USERNAME@$SERVER_IP:~/.ssh/authorized_keys
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Kopieren des SSH-Keys. Abbruch.${NC}"
+    return 1
+  fi
   
   echo "4. Berechtigungen auf vmLM1 setzen..."
   run_ssh_command_with_password "chmod 600 ~/.ssh/authorized_keys"
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Setzen der Berechtigungen. Abbruch.${NC}"
+    return 1
+  fi
   
-  echo "5. Backup der SSH-Konfiguration erstellen..."
+  echo "5. Testen des SSH-Keys vor der Konfigurationsänderung..."
+  if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT -i ~/.ssh/id_ed25519 $USERNAME@$SERVER_IP "echo 'SSH-Schlüssel funktioniert'" &>/dev/null; then
+    echo -e "${RED}✗ SSH-Key-Authentifizierung fehlgeschlagen. Bitte überprüfen Sie den Key. Abbruch.${NC}"
+    return 1
+  else
+    echo -e "${GREEN}✓ SSH-Key-Authentifizierung funktioniert!${NC}"
+  fi
+  
+  echo "6. Backup der SSH-Konfiguration erstellen..."
   # Erstelle ein lokales Backup der aktuellen SSH-Konfiguration
-  backup_remote_file "/etc/ssh/sshd_config"
+  if ! backup_remote_file "/etc/ssh/sshd_config"; then
+    echo -e "${RED}✗ Fehler beim Erstellen des Backups. Abbruch.${NC}"
+    return 1
+  fi
+  
   # Erstelle auch ein Backup auf dem Server
   run_ssh_command_with_password "sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak"
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Erstellen des Server-Backups. Abbruch.${NC}"
+    return 1
+  fi
   
-  echo "6. SSH-Konfiguration für Härtung erstellen..."
+  echo "7. SSH-Konfiguration für Härtung erstellen..."
   cat > ssh_config_new << 'EOF'
 # SSH Configuration with Hardened Security Settings
 Protocol 2
@@ -275,15 +302,30 @@ EOF
   # Replace the placeholder with the actual port number
   sed -i "s/NEW_SSH_PORT/$NEW_SSH_PORT/g" ssh_config_new
 
-  echo "7. SSH-Konfiguration auf vmLM1 übertragen..."
+  echo "8. SSH-Konfiguration auf vmLM1 übertragen..."
   sshpass -p "$PASSWORD" scp -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT ssh_config_new $USERNAME@$SERVER_IP:~/sshd_config
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Übertragen der SSH-Konfiguration. Abbruch.${NC}"
+    return 1
+  fi
   
-  echo "8. SSH-Konfiguration auf vmLM1 anwenden..."
+  echo "9. SSH-Konfiguration auf vmLM1 anwenden..."
   run_ssh_command_with_password "sudo mv ~/sshd_config /etc/ssh/sshd_config && sudo chmod 644 /etc/ssh/sshd_config"
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Anwenden der SSH-Konfiguration. Abbruch.${NC}"
+    return 1
+  fi
   
-  echo "9. Vollständiger Neustart des SSH-Dienstes..."
+  echo "10. Überprüfen der SSH-Konfiguration vor dem Neustart..."
+  if ! run_ssh_command_with_password "sudo sshd -t"; then
+    echo -e "${RED}✗ Die SSH-Konfiguration enthält Fehler. Stelle die ursprüngliche Konfiguration wieder her...${NC}"
+    run_ssh_command_with_password "sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config"
+    return 1
+  else
+    echo -e "${GREEN}✓ Die SSH-Konfiguration ist gültig.${NC}"
+  fi
+  
+  echo "11. Vollständiger Neustart des SSH-Dienstes..."
   # Erst stoppen
   run_ssh_command_with_password "sudo systemctl stop ssh"
   check_command $?
@@ -293,234 +335,230 @@ EOF
   run_ssh_command_with_password "sudo systemctl start ssh"
   check_command $?
   
-  echo "   Warte 10 Sekunden, damit SSH auf dem neuen Port starten kann..."
-  sleep 10
+  echo "   Warte 15 Sekunden, damit SSH auf dem neuen Port starten kann..."
+  sleep 15
   
-  echo "10. Überprüfe, ob SSH auf Port $NEW_SSH_PORT läuft..."
-  if run_ssh_command_with_password "sudo netstat -tulpn | grep -q ':$NEW_SSH_PORT'"; then
-    echo -e "${GREEN}✓ SSH läuft jetzt auf Port $NEW_SSH_PORT${NC}"
-  else
-    echo -e "${YELLOW}Warnung: SSH scheint nicht auf Port $NEW_SSH_PORT zu laufen.${NC}"
-    echo -e "${YELLOW}Versuche einen erneuten Neustart...${NC}"
-    
-    # Versuche es nochmal mit einem vollständigen Neustart
-    run_ssh_command_with_password "sudo systemctl restart ssh && sudo systemctl daemon-reload"
-    sleep 5
-    
-    # Prüfe nochmal
-    if run_ssh_command_with_password "sudo netstat -tulpn | grep -q ':$NEW_SSH_PORT'"; then
-      echo -e "${GREEN}✓ SSH läuft jetzt auf Port $NEW_SSH_PORT${NC}"
+  echo "12. Überprüfe SSH-Verbindung auf neuem Port (direkte Verbindung testen)..."
+  # Definitiver Test durch echte Verbindung statt nur netstat-Überprüfung
+  local connection_retries=0
+  local max_retries=3
+  
+  while [ $connection_retries -lt $max_retries ]; do
+    if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &>/dev/null; then
+      echo -e "${GREEN}✓ SSH läuft auf Port $NEW_SSH_PORT und akzeptiert Verbindungen!${NC}"
+      return 0
     else
-      echo -e "${RED}✗ SSH läuft nicht auf Port $NEW_SSH_PORT.${NC}"
-      echo -e "${YELLOW}Falls Probleme bestehen, versuche einen Neustart des Servers mit 'sudo reboot'.${NC}"
+      connection_retries=$((connection_retries + 1))
+      echo -e "${YELLOW}Versuch $connection_retries/$max_retries: SSH auf Port $NEW_SSH_PORT nicht erreichbar. Warte weitere 5 Sekunden...${NC}"
+      sleep 5
     fi
-  fi
+  done
   
-  echo -e "\n${YELLOW}SSH-Konfiguration angewendet. Nun muss die Firewall konfiguriert werden,${NC}"
-  echo -e "${YELLOW}bevor eine Verbindung über Port $NEW_SSH_PORT möglich ist.${NC}"
-  echo -e "${YELLOW}Bitte führen Sie als nächstes die Firewall-Konfiguration aus.${NC}"
+  echo -e "${RED}✗ SSH auf Port $NEW_SSH_PORT ist nicht erreichbar nach mehreren Versuchen.${NC}"
+  echo -e "${YELLOW}Versuche die ursprüngliche SSH-Konfiguration wiederherzustellen...${NC}"
+  # Versuche die Konfiguration wiederherzustellen
+  run_ssh_command_with_password "sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config && sudo systemctl restart ssh"
   
-  # Wichtig: Wir setzen SSH_HARDENED noch NICHT auf true, da die Firewall noch nicht konfiguriert ist
-  # Die Verbindung kann noch nicht getestet werden
-  
-  pause_for_screenshot
+  echo -e "${YELLOW}Bitte überprüfen Sie manuell die SSH-Konfiguration und versuchen Sie es erneut.${NC}"
+  return 1
 }
 
 # Aufgabe 3: Firewall konfigurieren
 setup_firewall() {
   print_section "Aufgabe 3: Firewall mit Default Deny konfigurieren"
   
-  # Prüfe SSH-Verbindungsstatus...
-  echo "Prüfe SSH-Verbindungsstatus..."
+  # Prüfe Konnektivität grundsätzlich
+  check_server_connectivity || return 1
   
-  # Erst versuchen auf Port 22 zu verbinden (Standard)
-  if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o BatchMode=yes $USERNAME@$SERVER_IP "echo 'SSH auf Port 22 funktioniert'" &> /dev/null; then
-    echo -e "${GREEN}✓ SSH auf Port 22 möglich - SSH Härtung wurde noch nicht abgeschlossen${NC}"
-    SSH_HARDENED=false
-    # Wir setzen nun die Variable für später
-    echo "Setze SSH_HARDENED=false (Standard-SSH-Port)"
+  # SSH-Status prüfen und lokale Variable setzen
+  echo "Prüfe SSH-Verbindungsstatus..."
+  local current_ssh_mode="standard"
+  local ssh_works_on_new_port=false
+  
+  # Testen ob SSH auf Standardport funktioniert
+  if ssh -o ConnectTimeout=3 -o BatchMode=yes -o StrictHostKeyChecking=no $USERNAME@$SERVER_IP "echo 'SSH auf Port 22 funktioniert'" &> /dev/null; then
+    echo -e "${GREEN}✓ SSH auf Port 22 möglich${NC}"
+    current_ssh_mode="standard"
   else
-    # Dann versuchen auf Port 23344 mit Key zu verbinden
-    if ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p 23344 $USERNAME@$SERVER_IP "echo 'SSH auf Port 23344 funktioniert'" &> /dev/null; then
-      echo -e "${GREEN}✓ SSH auf Port 23344 möglich - SSH Härtung bereits abgeschlossen${NC}"
-      SSH_HARDENED=true
-      # Wir setzen nun die Variable für später
-      echo "Setze SSH_HARDENED=true (SSH läuft bereits auf Port 23344)"
+    # Testen ob SSH auf dem neuen Port mit Key funktioniert
+    if ssh -o ConnectTimeout=3 -o BatchMode=yes -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH auf Port $NEW_SSH_PORT funktioniert'" &> /dev/null; then
+      echo -e "${GREEN}✓ SSH auf Port $NEW_SSH_PORT möglich${NC}"
+      current_ssh_mode="hardened"
+      ssh_works_on_new_port=true
     else
       echo -e "${RED}✗ Keine SSH-Verbindung möglich! Überprüfe die Server-Verbindung.${NC}"
       return 1
     fi
   fi
   
-  # Prüfe Konnektivität
-  check_server_connectivity || return 1
+  # Setze SSH_HARDENED basierend auf dem festgestellten Status
+  if [ "$current_ssh_mode" = "hardened" ]; then
+    SSH_HARDENED=true
+    echo -e "${GREEN}SSH läuft bereits im gehärteten Modus auf Port $NEW_SSH_PORT.${NC}"
+  else
+    SSH_HARDENED=false
+    echo -e "${YELLOW}SSH läuft im Standardmodus auf Port 22.${NC}"
+  fi
   
+  # Installation der UFW prüfen oder durchführen
   echo "Installation der UFW Firewall..."
-  run_command "sudo apt install -y ufw"
-  check_command $?
+  if ! run_command "which ufw" &>/dev/null; then
+    run_command "sudo apt update && sudo apt install -y ufw" 
+    if ! check_command $?; then
+      echo -e "${RED}✗ Fehler bei der Installation von UFW. Abbruch.${NC}"
+      return 1
+    fi
+  else
+    echo -e "${GREEN}✓ UFW ist bereits installiert.${NC}"
+  fi
   
-  # Prüfe, ob UFW installiert wurde
-  run_command "dpkg -l | grep ufw"
-  check_command $? || echo -e "${YELLOW}Warnung: Installation konnte nicht verifiziert werden${NC}"
-  
+  # Backup der Firewall-Konfiguration
   echo "Backup der Firewall-Konfiguration erstellen..."
   run_command "sudo cp /etc/default/ufw /etc/default/ufw.bak"
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Erstellen des Backups. Abbruch.${NC}"
+    return 1
+  fi
   
+  # Zurücksetzen aller Regeln
   echo "Zurücksetzen aller vorhandenen Regeln..."
   run_command "sudo ufw --force reset"
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Zurücksetzen der Firewall-Regeln. Abbruch.${NC}"
+    return 1
+  fi
   
-  echo "Setzen der Default-Deny-Regel..."
-  run_command "sudo ufw default deny incoming && sudo ufw default allow outgoing"
-  check_command $?
+  # KRITISCHER TEIL: Konfiguration der Firewall mit sicherem Ansatz
+  echo -e "${YELLOW}WICHTIG: Kritischer Teil der Firewall-Konfiguration beginnt...${NC}"
   
+  # 1. Den neuen SSH-Port öffnen BEVOR wir die Default-Deny-Regel setzen
   echo "Öffnen von Port $NEW_SSH_PORT für SSH..."
   run_command "sudo ufw allow $NEW_SSH_PORT/tcp"
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Öffnen des Ports $NEW_SSH_PORT. Abbruch.${NC}"
+    return 1
+  fi
   
-  # Nur wenn SSH noch auf Port 22 läuft, diesen temporär offen halten
+  # 2. Standardport 22 temporär offen halten, wenn SSH noch nicht gehärtet ist
   if [ "$SSH_HARDENED" = false ]; then
     echo "Temporäres Offenhalten von Port 22 für die Übergangsphase..."
     run_command "sudo ufw allow 22/tcp"
-    check_command $?
+    if ! check_command $?; then
+      echo -e "${RED}✗ Fehler beim Öffnen des Ports 22. Abbruch.${NC}"
+      return 1
+    fi
   fi
   
-  echo "Aktivieren der Firewall mit beiden offenen Ports..."
+  # 3. Default-Deny-Regel setzen
+  echo "Setzen der Default-Deny-Regel..."
+  run_command "sudo ufw default deny incoming && sudo ufw default allow outgoing"
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Setzen der Default-Deny-Regel. Abbruch.${NC}"
+    return 1
+  fi
+  
+  # 4. Firewall aktivieren
+  echo "Aktivieren der Firewall..."
   run_command "sudo ufw --force enable"
-  check_command $?
+  if ! check_command $?; then
+    echo -e "${RED}✗ Fehler beim Aktivieren der Firewall. Abbruch.${NC}"
+    return 1
+  fi
   
-  # Prüfe, ob Firewall aktiv ist
-  echo "Prüfe Firewall-Status..."
-  run_command "sudo ufw status | grep -E 'Status:'"
-  
-  # Verwende eine Variable um das Ergebnis zu speichern
-  firewall_active=$(run_command "sudo ufw status | grep -q 'Status: active' && echo true || echo false")
-  if [ "$firewall_active" = "true" ]; then
+  # Überprüfen, ob die Firewall korrekt aktiviert wurde
+  echo "Überprüfe Firewall-Status..."
+  if run_command "sudo ufw status | grep -q 'Status: active'"; then
     echo -e "${GREEN}✓ Firewall ist aktiv${NC}"
   else
-    echo -e "${RED}✗ Firewall scheint nicht aktiv zu sein${NC}"
+    echo -e "${RED}✗ Firewall konnte nicht aktiviert werden. Abbruch.${NC}"
+    return 1
+  fi
+  
+  # Überprüfen, ob der neue SSH-Port tatsächlich geöffnet ist
+  echo "Überprüfe, ob Port $NEW_SSH_PORT geöffnet ist..."
+  if run_command "sudo ufw status | grep -q '$NEW_SSH_PORT/tcp'"; then
+    echo -e "${GREEN}✓ Port $NEW_SSH_PORT ist offen${NC}"
+  else
+    echo -e "${RED}✗ Port $NEW_SSH_PORT ist nicht offen! Versuche Wiederherstellung...${NC}"
+    run_command "sudo ufw allow $NEW_SSH_PORT/tcp && sudo ufw reload"
+    if run_command "sudo ufw status | grep -q '$NEW_SSH_PORT/tcp'"; then
+      echo -e "${GREEN}✓ Port $NEW_SSH_PORT ist jetzt offen${NC}"
+    else
+      echo -e "${RED}✗ Port $NEW_SSH_PORT konnte nicht geöffnet werden. Große Vorsicht!${NC}"
+    fi
   fi
   
   echo -e "\n${YELLOW}Firewall-Status und Regeln:${NC}"
   run_command "sudo ufw status verbose"
   
-  # Jetzt testen wir die SSH-Verbindung mit dem neuen Port
-  echo "Teste Verbindung zum SSH-Port $NEW_SSH_PORT..."
-  sleep 3  # Warte kurz, bis die Änderungen wirksam werden
+  # KRITISCHER TEST: Testen der SSH-Verbindung auf dem neuen Port
+  echo -e "${YELLOW}Teste SSH-Verbindung auf Port $NEW_SSH_PORT...${NC}"
   
-  # Versuche, eine Verbindung auf dem neuen Port herzustellen
-  if ssh -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &> /dev/null; then
-    echo -e "${GREEN}✓ SSH-Verbindung auf Port $NEW_SSH_PORT erfolgreich${NC}"
+  # Wenn SSH noch nicht auf dem neuen Port funktioniert hat
+  if [ "$ssh_works_on_new_port" = false ]; then
+    echo "Versuche eine Verbindung aufzubauen (bitte warten)..."
+    sleep 5  # Kurze Pause für Stabilisierung
     
-    # Den SSH-Status auf gehärteten Zustand setzen
-    SSH_HARDENED=true
+    # Mehrere Versuche für die neue Verbindung
+    local connection_retries=0
+    local max_retries=3
     
-    # Prüfe ob Port 22 offen ist
-    has_port_22=$(run_command "sudo ufw status | grep -c '22/tcp' || echo 0")
-    if [ "$has_port_22" -gt 0 ]; then
-      echo "Schließe Port 22, da die Verbindung über Port $NEW_SSH_PORT funktioniert..."
-      # Wichtig: Wir verwenden jetzt run_command, welches mit SSH_HARDENED=true den neuen Port verwendet
-      run_command "sudo ufw delete allow 22/tcp"
-      check_command $?
-    fi
-    
-    echo -e "\n${YELLOW}Endgültiger Firewall-Status (nur Port $NEW_SSH_PORT offen):${NC}"
-    run_command "sudo ufw status verbose"
-    
-    echo -e "\n${GREEN}SSH-Härtung und Firewall-Konfiguration abgeschlossen. SSH läuft jetzt auf Port $NEW_SSH_PORT mit Key-Authentifizierung.${NC}"
-  else
-    echo -e "${RED}✗ SSH-Verbindung auf Port $NEW_SSH_PORT fehlgeschlagen${NC}"
-    
-    # Statt sofort abzubrechen, bieten wir Optionen an
-    echo -e "\n${YELLOW}Die Firewall wurde konfiguriert, aber die Verbindung zum neuen SSH-Port funktioniert nicht.${NC}"
-    echo -e "${YELLOW}Port 22 bleibt zur Sicherheit weiterhin offen.${NC}"
-    
-    echo -e "\nWas möchten Sie tun?"
-    echo "1. SSH-Konfiguration überprüfen"
-    echo "2. SSH-Dienst neu starten"
-    echo "3. Server neu starten (Vorsicht!)"
-    echo "4. Zum Hauptmenü zurückkehren"
-    
-    read -p "Wähle eine Option (1-4): " ssh_fix_option
-    
-    case $ssh_fix_option in
-      1)
-        echo -e "\n${YELLOW}SSH-Konfiguration wird überprüft...${NC}"
-        run_command "sudo cat /etc/ssh/sshd_config | grep -v '#' | grep -v '^$'"
-        echo -e "\n${YELLOW}SSH-Dienststatus:${NC}"
-        run_command "sudo systemctl status ssh"
-        echo -e "\n${YELLOW}Offene Ports:${NC}"
-        run_command "sudo netstat -tulpn | grep ssh"
-        
-        # Wieder Optionen anbieten
-        echo -e "\nMöchten Sie:"
-        echo "1. Zurück zur Firewall-Konfiguration"
-        echo "2. Zum Hauptmenü"
-        read -p "Wähle (1-2): " return_option
-        if [ "$return_option" = "1" ]; then
-          setup_firewall
-          return
-        fi
-        ;;
-      2)
-        echo -e "\n${YELLOW}SSH-Dienst wird neu gestartet...${NC}"
-        run_command "sudo systemctl restart ssh && sudo systemctl daemon-reload"
+    while [ $connection_retries -lt $max_retries ]; do
+      if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &>/dev/null; then
+        echo -e "${GREEN}✓ SSH-Verbindung auf Port $NEW_SSH_PORT erfolgreich!${NC}"
+        SSH_HARDENED=true
+        break
+      else
+        connection_retries=$((connection_retries + 1))
+        echo -e "${YELLOW}Versuch $connection_retries/$max_retries: Verbindung auf Port $NEW_SSH_PORT fehlgeschlagen. Warte weitere 5 Sekunden...${NC}"
         sleep 5
-        echo -e "${YELLOW}SSH-Neustart abgeschlossen. Teste erneut...${NC}"
-        
-        if ssh -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &> /dev/null; then
-          echo -e "${GREEN}✓ SSH-Verbindung auf Port $NEW_SSH_PORT jetzt erfolgreich!${NC}"
-          SSH_HARDENED=true
-        else
-          echo -e "${RED}✗ SSH-Verbindung auf Port $NEW_SSH_PORT weiterhin nicht möglich.${NC}"
-        fi
-        
-        # Wieder Optionen anbieten
-        echo -e "\nMöchten Sie:"
-        echo "1. Zurück zur Firewall-Konfiguration"
-        echo "2. Zum Hauptmenü"
-        read -p "Wähle (1-2): " return_option
-        if [ "$return_option" = "1" ]; then
-          setup_firewall
-          return
-        fi
-        ;;
-      3)
-        echo -e "\n${RED}WARNUNG: Sie sind dabei, den Server neu zu starten!${NC}"
-        echo -e "${YELLOW}Dies kann mehrere Minuten dauern und unterbricht laufende Verbindungen.${NC}"
-        read -p "Sind Sie sicher? (j/n): " confirm_reboot
-        
-        if [[ "$confirm_reboot" =~ ^[Jj]$ ]]; then
-          echo -e "${YELLOW}Server wird neu gestartet...${NC}"
-          run_command "sudo reboot"
-          echo -e "${YELLOW}Warte 60 Sekunden auf Neustart...${NC}"
-          sleep 60
-          echo -e "${YELLOW}Versuche erneut, eine Verbindung herzustellen...${NC}"
-          
-          # Versuche auf Port 22 zu verbinden
-          if ssh -o ConnectTimeout=$SSH_TIMEOUT -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 -p 22 $USERNAME@$SERVER_IP "echo 'SSH-Verbindung erfolgreich'" &> /dev/null; then
-            echo -e "${GREEN}✓ SSH-Verbindung auf Port 22 erfolgreich.${NC}"
-            echo -e "${YELLOW}Bitte führen Sie die SSH-Härtung erneut aus, bevor Sie die Firewall konfigurieren.${NC}"
-          else
-            echo -e "${RED}✗ Keine SSH-Verbindung möglich. Server möglicherweise noch beim Booten.${NC}"
-            echo -e "${YELLOW}Bitte warten Sie etwas länger und versuchen Sie es dann erneut manuell.${NC}"
-          fi
-        fi
-        ;;
-      4|*)
-        echo -e "\n${YELLOW}Rückkehr zum Hauptmenü...${NC}"
-        ;;
-    esac
+      fi
+    done
     
-    echo -e "\n${YELLOW}Hinweis: Die Firewall ist bereits aktiviert mit den folgenden Regeln:${NC}"
-    run_command "sudo ufw status verbose"
-    
-    echo -e "\n${YELLOW}Drücke ENTER um fortzufahren...${NC}"
-    read -p ""
+    if [ "$SSH_HARDENED" = false ]; then
+      echo -e "${RED}✗ Konnte keine Verbindung auf Port $NEW_SSH_PORT herstellen nach mehreren Versuchen.${NC}"
+      echo -e "${YELLOW}Das könnte daran liegen, dass SSH auf diesem Port noch nicht richtig konfiguriert ist.${NC}"
+      echo -e "${YELLOW}Bitte stellen Sie sicher, dass SSH-Härtung BEVOR die Firewall konfiguriert wird.${NC}"
+      
+      echo -e "${YELLOW}Port 22 bleibt zugänglich, um nicht den Zugriff zu verlieren.${NC}"
+      echo -e "${YELLOW}Wenn Sie fortfahren möchten, drücken Sie ENTER, sonst CTRL+C zum Abbruch.${NC}"
+      read -p ""
+      return 0  # Rückgabe 0, obwohl nicht vollständig erfolgreich
+    fi
+  else
+    echo -e "${GREEN}✓ SSH auf Port $NEW_SSH_PORT ist bereits konfiguriert und funktioniert.${NC}"
+  fi
+  
+  # Wenn SSH-Härtung abgeschlossen ist und SSH auf Port $NEW_SSH_PORT funktioniert,
+  # können wir Port 22 schließen falls dieser noch offen ist
+  if [ "$SSH_HARDENED" = true ]; then
+    echo "Prüfe, ob Port 22 noch geöffnet ist..."
+    if run_command "sudo ufw status | grep -q '22/tcp'"; then
+      echo "SSH funktioniert auf Port $NEW_SSH_PORT. Schließe Port 22..."
+      run_command "sudo ufw delete allow 22/tcp"
+      if check_command $?; then
+        echo -e "${GREEN}✓ Port 22 wurde erfolgreich geschlossen.${NC}"
+      else
+        echo -e "${RED}✗ Fehler beim Schließen von Port 22.${NC}"
+      fi
+    else
+      echo -e "${GREEN}✓ Port 22 ist bereits geschlossen.${NC}"
+    fi
+  fi
+  
+  echo -e "\n${YELLOW}Aktueller Firewall-Status:${NC}"
+  run_command "sudo ufw status verbose"
+  
+  echo -e "\n${GREEN}Firewall-Konfiguration abgeschlossen.${NC}"
+  if [ "$SSH_HARDENED" = true ]; then
+    echo -e "${GREEN}SSH läuft auf Port $NEW_SSH_PORT mit Key-Authentifizierung.${NC}"
+  else
+    echo -e "${YELLOW}SSH läuft noch auf dem Standardport 22.${NC}"
+    echo -e "${YELLOW}Führen Sie die SSH-Härtung durch, bevor Sie die Firewall-Konfiguration abschließen.${NC}"
   fi
   
   pause_for_screenshot
+  return 0
 }
 
 # ====================================================================
