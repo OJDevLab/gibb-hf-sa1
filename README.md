@@ -16,6 +16,11 @@ Proaktiver Schutz des Ubuntu/Debian-Servers durch Härtungsmassnahmen.
 ```bash
 wget https://raw.githubusercontent.com/OJDevLab/gibb-hf-sa1/refs/heads/main/setup.sh -O remote_hardening.sh
 ```
+
+```bash
+wget https://raw.githubusercontent.com/OJDevLab/gibb-hf-sa1/refs/heads/main/ssh_setup.sh -O remote_hardening.sh
+```
+
 #### 2. Ausführungsrechte setzen
 ```bash
 chmod +x remote_hardening.sh
