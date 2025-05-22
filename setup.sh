@@ -33,7 +33,6 @@ NC='\033[0m' # No Color
 
 # Hilfsfunktion für bessere Lesbarkeit
 print_section() {
-  clear
   echo -e "${BLUE}==========================================================${NC}"
   echo -e "${YELLOW}$1${NC}"
   echo -e "${BLUE}==========================================================${NC}"
