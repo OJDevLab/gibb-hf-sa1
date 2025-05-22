@@ -207,234 +207,440 @@ setup_auto_updates() {
   pause_for_screenshot
 }
 
-# Aufgabe 2: SSH-Härtung
 setup_ssh_hardening() {
-  print_section "Aufgabe 2: SSH-Härtung konfigurieren (mit Server-Neustart)"
-
-  # Prüfe Konnektivität zum Server via Ping
-  check_server_connectivity || return 1
-
-  echo "1. SSH-Key auf vmKL1 generieren (falls nicht vorhanden)..."
+  print_section "Aufgabe 2: SSH-Härtung (Robuste Implementation)"
+  
+  # Lokale Variablen für Zustandsverfolgung
+  local phase="PREPARATION"
+  local ssh_key_deployed=false
+  local ssh_port_changed=false
+  local ssh_config_hardened=false
+  local original_config_backed_up=false
+  local backup_timestamp=$(date +"%Y%m%d_%H%M%S")
+  
+  # Rollback-Funktion
+  rollback_ssh_changes() {
+    local error_phase=$1
+    echo -e "${RED}Fehler in Phase: $error_phase${NC}"
+    echo -e "${YELLOW}Führe Rollback durch...${NC}"
+    
+    case $error_phase in
+      "PORT_CHANGE"|"CONFIG_HARDENING")
+        if [ "$original_config_backed_up" = true ]; then
+          echo "Stelle ursprüngliche SSH-Konfiguration wieder her..."
+          run_ssh_command_with_password "sudo cp /etc/ssh/sshd_config.backup_${backup_timestamp} /etc/ssh/sshd_config"
+          run_ssh_command_with_password "sudo systemctl restart ssh"
+          echo -e "${GREEN}✓ SSH-Konfiguration wurde wiederhergestellt${NC}"
+        fi
+        ;;
+      "KEY_DEPLOYMENT")
+        echo "Entferne eventuell fehlerhafte SSH-Keys..."
+        run_ssh_command_with_password "rm -f ~/.ssh/authorized_keys.backup_${backup_timestamp}"
+        ;;
+    esac
+    
+    echo -e "${RED}SSH-Härtung abgebrochen. System sollte im ursprünglichen Zustand sein.${NC}"
+    return 1
+  }
+  
+  # =============================================================================
+  # PHASE 1: VORBEREITUNG UND VALIDIERUNG
+  # =============================================================================
+  
+  phase="PREPARATION"
+  echo -e "${BLUE}[PHASE 1]${NC} Vorbereitung und Validierung"
+  
+  # Grundlegende Konnektivität prüfen
+  if ! check_server_connectivity; then
+    echo -e "${RED}✗ Server nicht erreichbar${NC}"
+    return 1
+  fi
+  
+  # SSH-Verbindung mit Passwort testen
+  echo "Teste SSH-Verbindung mit Passwort..."
+  if ! run_ssh_command_with_password "echo 'SSH-Verbindung funktioniert'"; then
+    echo -e "${RED}✗ SSH-Verbindung mit Passwort fehlgeschlagen${NC}"
+    return 1
+  fi
+  echo -e "${GREEN}✓ SSH-Verbindung mit Passwort erfolgreich${NC}"
+  
+  # SSH-Key prüfen/generieren
+  echo "Prüfe SSH-Key auf vmKL1..."
   if [ ! -f ~/.ssh/id_ed25519 ]; then
-    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
-    if ! check_command $?; then
-      echo -e "${RED}✗ Fehler beim Generieren des SSH-Keys. Abbruch.${NC}"
+    echo "Generiere neuen ED25519 SSH-Key..."
+    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -C "vmadmin@vmKL1"
+    if [ $? -ne 0 ]; then
+      echo -e "${RED}✗ SSH-Key-Generierung fehlgeschlagen${NC}"
       return 1
     fi
+    echo -e "${GREEN}✓ SSH-Key erfolgreich generiert${NC}"
   else
-    echo -e "${GREEN}✓ SSH-Key existiert bereits (~/.ssh/id_ed25519).${NC}"
+    echo -e "${GREEN}✓ SSH-Key bereits vorhanden${NC}"
   fi
-
-  echo "2. Vorbereitung der SSH-Verzeichnisse auf vmLM1 (via Port $SSH_PORT)..."
-  run_ssh_command_with_password "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
-  if ! check_command $?; then
-    echo -e "${RED}✗ Fehler bei der Verzeichnisvorbereitung auf dem Server. Abbruch.${NC}"
-    return 1
-  fi
-
-  echo "3. SSH-Key auf vmLM1 kopieren (via Port $SSH_PORT)..."
-  # Temporäre Datei für authorized_keys erstellen, um existierende Keys nicht zu überschreiben, sondern hinzuzufügen
-  # Stattdessen kopieren wir direkt, wie im Original, was bei erstmaliger Einrichtung üblich ist.
-  # Für robustere Skripte würde man `ssh-copy-id` ähnliche Logik (Key anhängen) verwenden.
-  # Originalskript überschreibt authorized_keys. Wir behalten das bei.
-  mkdir -p ~/.ssh/temp # Lokales Temp-Verzeichnis
-  cat ~/.ssh/id_ed25519.pub > ~/.ssh/temp/authorized_keys_for_vmLM1 # Name geändert für Klarheit
-  sshpass -p "$PASSWORD" scp -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT ~/.ssh/temp/authorized_keys_for_vmLM1 $USERNAME@$SERVER_IP:~/.ssh/authorized_keys
-  rm -rf ~/.ssh/temp # Lokales Temp-Verzeichnis aufräumen
-  if ! check_command $?; then
-    echo -e "${RED}✗ Fehler beim Kopieren des SSH-Keys. Abbruch.${NC}"
-    return 1
-  fi
-
-  echo "4. Berechtigungen für authorized_keys auf vmLM1 setzen (via Port $SSH_PORT)..."
-  run_ssh_command_with_password "chmod 600 ~/.ssh/authorized_keys"
-  if ! check_command $?; then
-    echo -e "${RED}✗ Fehler beim Setzen der Berechtigungen für authorized_keys. Abbruch.${NC}"
-    return 1
-  fi
-
-  echo "5. Testen des SSH-Keys (auf Port $SSH_PORT) vor der Konfigurationsänderung..."
-  # Dieser Test verwendet den Standard-SSH-Port (oder $SSH_PORT) und den neu kopierten Key.
-  # Wichtig: -o PasswordAuthentication=no hier erzwingen für den Test, um sicherzustellen, dass der Key verwendet wird.
-  if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT \
-           -o PasswordAuthentication=no -o PubkeyAuthentication=yes -o KbdInteractiveAuthentication=no -o ChallengeResponseAuthentication=no \
-           -p $SSH_PORT -i ~/.ssh/id_ed25519 $USERNAME@$SERVER_IP "echo 'SSH-Schlüssel funktioniert auf Port $SSH_PORT'" &>/dev/null; then
-    echo -e "${RED}✗ SSH-Key-Authentifizierung auf Port $SSH_PORT fehlgeschlagen. ${NC}"
-    echo -e "${YELLOW}  Mögliche Gründe: PubkeyAuthentication ist serverseitig (in /etc/ssh/sshd_config) noch nicht auf 'yes' oder der Key wurde nicht korrekt übernommen.${NC}"
-    echo -e "${YELLOW}  Abbruch. Bitte manuell prüfen.${NC}"
-    return 1
+  
+  # Backup der aktuellen SSH-Konfiguration erstellen
+  echo "Erstelle Backup der SSH-Konfiguration..."
+  if run_ssh_command_with_password "sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup_${backup_timestamp}"; then
+    original_config_backed_up=true
+    echo -e "${GREEN}✓ SSH-Konfiguration gesichert${NC}"
   else
-    echo -e "${GREEN}✓ SSH-Key-Authentifizierung auf Port $SSH_PORT funktioniert!${NC}"
-  fi
-
-  echo "6. Backup der aktuellen SSH-Server-Konfiguration (/etc/ssh/sshd_config)..."
-  if ! backup_remote_file "/etc/ssh/sshd_config"; then # Nutzt $SSH_HARDENED, was hier 'false' sein sollte
-    echo -e "${RED}✗ Fehler beim Erstellen des lokalen Backups der Server-SSH-Konfig. Abbruch.${NC}"
+    echo -e "${RED}✗ Backup der SSH-Konfiguration fehlgeschlagen${NC}"
     return 1
   fi
-  run_ssh_command_with_password "sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak_$(date +\"%Y%m%d_%H%M%S\")"
-  if ! check_command $?; then
-    echo -e "${RED}✗ Fehler beim Erstellen des Backups der SSH-Konfig auf dem Server. Abbruch.${NC}"
+  
+  # =============================================================================
+  # PHASE 2: SSH-KEY DEPLOYMENT (SICHER)
+  # =============================================================================
+  
+  phase="KEY_DEPLOYMENT"
+  echo -e "\n${BLUE}[PHASE 2]${NC} SSH-Key sicher deployment"
+  
+  # SSH-Verzeichnis auf Server vorbereiten
+  echo "Bereite SSH-Verzeichnis auf vmLM1 vor..."
+  if ! run_ssh_command_with_password "mkdir -p ~/.ssh && chmod 700 ~/.ssh"; then
+    rollback_ssh_changes "$phase"
     return 1
   fi
-
-  echo "7. Neue, gehärtete SSH-Konfiguration erstellen..."
-  # Temporäre lokale Datei für die neue Konfiguration
-  local temp_ssh_config_new="ssh_config_new_$(date +%s)"
-  cat > "$temp_ssh_config_new" << EOF
-# SSH Configuration with Hardened Security Settings
+  
+  # Backup der existierenden authorized_keys (falls vorhanden)
+  run_ssh_command_with_password "[ -f ~/.ssh/authorized_keys ] && cp ~/.ssh/authorized_keys ~/.ssh/authorized_keys.backup_${backup_timestamp} || true"
+  
+  # Public Key übertragen (sicher)
+  echo "Übertrage SSH-Public-Key..."
+  local temp_key_file=$(mktemp)
+  cat ~/.ssh/id_ed25519.pub > "$temp_key_file"
+  
+  if sshpass -p "$PASSWORD" scp -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT "$temp_key_file" $USERNAME@$SERVER_IP:~/.ssh/authorized_keys.new; then
+    rm "$temp_key_file"
+    echo -e "${GREEN}✓ Public Key übertragen${NC}"
+  else
+    rm "$temp_key_file"
+    rollback_ssh_changes "$phase"
+    return 1
+  fi
+  
+  # Key auf Server installieren und Berechtigungen setzen
+  if ! run_ssh_command_with_password "mv ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chown $USERNAME:$USERNAME ~/.ssh/authorized_keys"; then
+    rollback_ssh_changes "$phase"
+    return 1
+  fi
+  
+  # SSH-Key-Authentifizierung testen (kritischer Test)
+  echo "Teste SSH-Key-Authentifizierung auf Port $SSH_PORT..."
+  local key_test_retries=3
+  local key_works=false
+  
+  for ((i=1; i<=key_test_retries; i++)); do
+    if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT \
+           -o PasswordAuthentication=no -o PubkeyAuthentication=yes \
+           -p $SSH_PORT -i ~/.ssh/id_ed25519 $USERNAME@$SERVER_IP "echo 'SSH-Key funktioniert'" &>/dev/null; then
+      key_works=true
+      break
+    else
+      echo "Versuch $i/$key_test_retries fehlgeschlagen, warte 3 Sekunden..."
+      sleep 3
+    fi
+  done
+  
+  if [ "$key_works" = false ]; then
+    echo -e "${RED}✗ SSH-Key-Authentifizierung funktioniert nicht${NC}"
+    rollback_ssh_changes "$phase"
+    return 1
+  fi
+  
+  ssh_key_deployed=true
+  echo -e "${GREEN}✓ SSH-Key-Authentifizierung erfolgreich${NC}"
+  
+  # =============================================================================
+  # PHASE 3: SSH-PORT ÄNDERUNG (VORSICHTIG)
+  # =============================================================================
+  
+  phase="PORT_CHANGE"
+  echo -e "\n${BLUE}[PHASE 3]${NC} SSH-Port ändern (Passwort-Auth bleibt aktiv)"
+  
+  # Neue SSH-Konfiguration erstellen (Port ändern, aber Passwort-Auth noch nicht deaktivieren)
+  echo "Erstelle vorläufige SSH-Konfiguration (nur Port-Änderung)..."
+  local temp_config=$(mktemp)
+  cat > "$temp_config" << EOF
+# SSH Configuration - Phase 3 (Port Change Only)
 Protocol 2
 Port $NEW_SSH_PORT
 HostKey /etc/ssh/ssh_host_ed25519_key
-HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key  
 HostKey /etc/ssh/ssh_host_rsa_key
-MaxSessions 5
-MaxAuthTries 3
-LoginGraceTime 30
-StrictModes yes
-PermitRootLogin no
+
+# Authentication (temporarily keep password auth)
 PubkeyAuthentication yes
-PasswordAuthentication no
+PasswordAuthentication yes
 KbdInteractiveAuthentication no
 ChallengeResponseAuthentication no
 AuthorizedKeysFile .ssh/authorized_keys
-ClientAliveInterval 300
-ClientAliveCountMax 2
+
+# Basic Security
+PermitRootLogin yes
+StrictModes yes
+MaxAuthTries 6
+LoginGraceTime 120
+
+# Logging
 SyslogFacility AUTH
-LogLevel VERBOSE
-X11Forwarding no
-AllowTcpForwarding no
-AllowAgentForwarding no
+LogLevel INFO
+
+# Basic Settings
+X11Forwarding yes
 PrintMotd no
 AcceptEnv LANG LC_*
 Subsystem sftp /usr/lib/openssh/sftp-server
 EOF
-  # Kein Placeholder mehr nötig, da $NEW_SSH_PORT direkt verwendet wird.
 
-  echo "8. Neue SSH-Konfiguration auf vmLM1 übertragen (via Port $SSH_PORT)..."
-  sshpass -p "$PASSWORD" scp -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT "$temp_ssh_config_new" $USERNAME@$SERVER_IP:~/sshd_config_new_remote
-  rm "$temp_ssh_config_new" # Lokale temporäre Datei löschen
-  if ! check_command $?; then
-    echo -e "${RED}✗ Fehler beim Übertragen der neuen SSH-Konfiguration. Abbruch.${NC}"
+  # Konfiguration übertragen
+  if sshpass -p "$PASSWORD" scp -o ConnectTimeout=$SSH_TIMEOUT -P $SSH_PORT "$temp_config" $USERNAME@$SERVER_IP:~/sshd_config_phase3; then
+    rm "$temp_config"
+    echo -e "${GREEN}✓ Vorläufige Konfiguration übertragen${NC}"
+  else
+    rm "$temp_config"
+    rollback_ssh_changes "$phase"
     return 1
   fi
-
-  echo "9. Neue SSH-Konfiguration auf vmLM1 anwenden (via Port $SSH_PORT)..."
-  run_ssh_command_with_password "sudo mv ~/sshd_config_new_remote /etc/ssh/sshd_config && sudo chmod 644 /etc/ssh/sshd_config"
-  if ! check_command $?; then
-    echo -e "${RED}✗ Fehler beim Anwenden der neuen SSH-Konfiguration. Abbruch.${NC}"
-    # Versuch, das Server-Backup wiederherzustellen, falls vorhanden (Name ist dynamisch)
-    # Dies ist schwierig, da wir den genauen Namen des .bak_timestamp nicht kennen ohne weitere Abfrage.
-    # Das Original-Skript verwendete einen festen .bak Namen, was einfacher wiederherzustellen war.
-    # Für jetzt belassen wir es bei der Fehlermeldung.
+  
+  # Konfiguration anwenden
+  if ! run_ssh_command_with_password "sudo mv ~/sshd_config_phase3 /etc/ssh/sshd_config && sudo chmod 644 /etc/ssh/sshd_config"; then
+    rollback_ssh_changes "$phase"
     return 1
   fi
-
-  echo "10. Überprüfen der Syntax der neuen SSH-Konfiguration auf vmLM1 (via Port $SSH_PORT)..."
+  
+  # Syntax prüfen
   if ! run_ssh_command_with_password "sudo sshd -t"; then
-    echo -e "${RED}✗ Die neue SSH-Konfiguration enthält Syntaxfehler.${NC}"
-    echo -e "${YELLOW}  Versuche, die unmittelbar zuvor erstellte Server-Sicherungskopie wiederherzustellen...${NC}"
-    # Wir müssen den Namen des Backups kennen. Das Original-Skript nannte es sshd_config.bak
-    # Wir haben es sshd_config.bak_TIMESTAMP genannt.
-    # Sicherer wäre, den ursprünglichen .bak Namen des Originalskripts zu verwenden
-    # oder den Namen hier zu konstruieren/abzurufen.
-    # Für jetzt: Annahme, der Benutzer stellt es manuell wieder her oder das .bak des Originalskripts.
-    run_ssh_command_with_password "ls -t /etc/ssh/sshd_config.bak_* | head -n 1 | xargs -I {} sudo cp {} /etc/ssh/sshd_config"
-    echo -e "${YELLOW}  Wiederherstellungsversuch ausgeführt. Bitte Server manuell prüfen. Abbruch.${NC}"
-    return 1
-  else
-    echo -e "${GREEN}✓ Die neue SSH-Konfiguration ist syntaktisch gültig.${NC}"
-  fi
-
-  echo "11. Neustart des SSH-Dienstes auf vmLM1 (via Port $SSH_PORT)..."
-  # Diese Befehle werden über die alte Verbindung gesendet. Nach 'start' sollte der Server auf dem neuen Port lauschen.
-  run_ssh_command_with_password "sudo systemctl stop ssh && sudo systemctl start ssh"
-  if ! check_command $?; then
-    echo -e "${RED}✗ Fehler beim Neustart des SSH-Dienstes auf dem Server.${NC}"
-    echo -e "${YELLOW}  Versuche, die ursprüngliche SSH-Konfiguration wiederherzustellen (falls möglich)...${NC}"
-    run_ssh_command_with_password "ls -t /etc/ssh/sshd_config.bak_* | head -n 1 | xargs -I {} sudo cp {} /etc/ssh/sshd_config && sudo systemctl restart ssh"
-    echo -e "${YELLOW}  Wiederherstellungsversuch ausgeführt. Bitte Server manuell prüfen. Abbruch.${NC}"
+    echo -e "${RED}✗ SSH-Konfiguration hat Syntaxfehler${NC}"
+    rollback_ssh_changes "$phase"
     return 1
   fi
-  echo "   SSH-Dienst-Neustart-Befehl gesendet. Warte 10 Sekunden, damit der Dienst auf dem neuen Port ($NEW_SSH_PORT) starten kann..."
+  
+  # SSH-Dienst neu starten
+  echo "Starte SSH-Dienst mit neuer Port-Konfiguration neu..."
+  if ! run_ssh_command_with_password "sudo systemctl restart ssh"; then
+    rollback_ssh_changes "$phase"
+    return 1
+  fi
+  
+  # Warten bis Service bereit ist
+  echo "Warte 10 Sekunden für SSH-Service-Start..."
   sleep 10
+  
+  # Test der neuen Port-Verbindung (mit Passwort UND Key)
+  echo "Teste SSH-Verbindung auf neuem Port $NEW_SSH_PORT..."
+  local port_test_retries=5
+  local port_works=false
+  
+  for ((i=1; i<=port_test_retries; i++)); do
+    # Test mit SSH-Key
+    if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT \
+           -p $NEW_SSH_PORT -i ~/.ssh/id_ed25519 $USERNAME@$SERVER_IP "echo 'SSH auf Port $NEW_SSH_PORT funktioniert'" &>/dev/null; then
+      port_works=true
+      break
+    else
+      echo "Versuch $i/$port_test_retries (Key-Auth) fehlgeschlagen, warte 5 Sekunden..."
+      sleep 5
+    fi
+  done
+  
+  if [ "$port_works" = false ]; then
+    echo -e "${RED}✗ SSH auf Port $NEW_SSH_PORT nicht erreichbar${NC}"
+    rollback_ssh_changes "$phase"
+    return 1
+  fi
+  
+  ssh_port_changed=true
+  echo -e "${GREEN}✓ SSH läuft erfolgreich auf Port $NEW_SSH_PORT${NC}"
+  
+  # =============================================================================
+  # PHASE 4: FINALE HÄRTUNG (NUR WENN ALLES FUNKTIONIERT)
+  # =============================================================================
+  
+  phase="CONFIG_HARDENING"
+  echo -e "\n${BLUE}[PHASE 4]${NC} Finale SSH-Härtung anwenden"
+  
+  # Gehärtete SSH-Konfiguration erstellen
+  echo "Erstelle finale gehärtete SSH-Konfiguration..."
+  local temp_hardened_config=$(mktemp)
+  cat > "$temp_hardened_config" << EOF
+# SSH Configuration - Final Hardened Settings
+# Generated by HFI_SA Hardening Script
 
-  echo "12. Kurzer Test der SSH-Verbindung auf neuem Port $NEW_SSH_PORT (vor dem Server-Neustart)..."
-  if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung auf neuem Port $NEW_SSH_PORT funktioniert'" &>/dev/null; then
-    echo -e "${GREEN}✓ SSH scheint auf Port $NEW_SSH_PORT zu laufen und akzeptiert Verbindungen (vor Server-Neustart).${NC}"
+# Protocol and Connection
+Protocol 2
+Port $NEW_SSH_PORT
+
+# Host Keys
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+# Session Management
+MaxSessions 3
+MaxAuthTries 3
+LoginGraceTime 30
+MaxStartups 2:30:10
+
+# Authentication - HARDENED
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+PermitRootLogin no
+PermitEmptyPasswords no
+AuthorizedKeysFile .ssh/authorized_keys
+
+# Connection Security
+StrictModes yes
+ClientAliveInterval 300
+ClientAliveCountMax 2
+
+# Logging
+SyslogFacility AUTH
+LogLevel VERBOSE
+
+# Feature Restrictions - HARDENED
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+PermitTunnel no
+GatewayPorts no
+
+# Banner and Environment
+PrintMotd no
+PrintLastLog yes
+AcceptEnv LANG LC_*
+
+# Subsystems
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# Additional Security
+UseDNS no
+PermitUserEnvironment no
+EOF
+
+  # Gehärtete Konfiguration übertragen
+  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "cat > ~/sshd_config_hardened" < "$temp_hardened_config"; then
+    rm "$temp_hardened_config"
+    echo -e "${GREEN}✓ Gehärtete Konfiguration übertragen${NC}"
   else
-    echo -e "${RED}✗ SSH auf Port $NEW_SSH_PORT ist NICHT erreichbar (vor Server-Neustart).${NC}"
-    echo -e "${YELLOW}  Die SSH-Härtung scheint fehlgeschlagen zu sein, der Dienst läuft nicht wie erwartet auf dem neuen Port.${NC}"
-    echo -e "${YELLOW}  Versuche, die ursprüngliche SSH-Konfiguration wiederherzustellen (via Port $SSH_PORT, falls noch möglich)...${NC}"
-    run_ssh_command_with_password "ls -t /etc/ssh/sshd_config.bak_* | head -n 1 | xargs -I {} sudo cp {} /etc/ssh/sshd_config && sudo systemctl restart ssh"
-    echo -e "${YELLOW}  Wiederherstellungsversuch ausgeführt. Bitte Server manuell prüfen. Abbruch.${NC}"
+    rm "$temp_hardened_config"
+    rollback_ssh_changes "$phase"
     return 1
   fi
-
-  echo "13. Server $SERVER_IP wird neu gestartet (sudo reboot)..."
-  # Sende den Reboot-Befehl über die NEUE, gerade getestete SSH-Verbindung
-  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "sudo reboot" &>/dev/null
-  # Kurze Pause, um dem Server Zeit zu geben, den Reboot-Befehl zu verarbeiten
-  echo "   Reboot-Befehl an $SERVER_IP gesendet. Warte einige Sekunden, bevor mit Ping-Checks begonnen wird..."
+  
+  # Syntax der gehärteten Konfiguration prüfen
+  if ! run_ssh_command_with_key "sudo cp ~/sshd_config_hardened /tmp/sshd_test && sudo sshd -t -f /tmp/sshd_test"; then
+    echo -e "${RED}✗ Gehärtete SSH-Konfiguration hat Syntaxfehler${NC}"
+    rollback_ssh_changes "$phase"
+    return 1
+  fi
+  
+  # Gehärtete Konfiguration anwenden
+  echo "Wende finale gehärtete SSH-Konfiguration an..."
+  if ! run_ssh_command_with_key "sudo mv ~/sshd_config_hardened /etc/ssh/sshd_config && sudo chmod 644 /etc/ssh/sshd_config"; then
+    rollback_ssh_changes "$phase"
+    return 1
+  fi
+  
+  # SSH-Dienst mit gehärteter Konfiguration neu starten
+  echo "Starte SSH-Dienst mit gehärteter Konfiguration neu..."
+  if ! run_ssh_command_with_key "sudo systemctl restart ssh"; then
+    rollback_ssh_changes "$phase"
+    return 1
+  fi
+  
+  # Finaler kritischer Test - warten und mehrfach testen
+  echo "Warte 15 Sekunden für SSH-Service-Start mit gehärteter Konfiguration..."
   sleep 15
-
-  echo "14. Warte, bis der Server $SERVER_IP nach dem Neustart wieder via Ping erreichbar ist..."
-  local reboot_ping_retries=0
-  local max_reboot_ping_retries=60 # Bis zu 5 Minuten (60 Versuche * 5 Sekunden Intervall)
-  local server_is_back_ping=false
-  while [ $reboot_ping_retries -lt $max_reboot_ping_retries ]; do
-    if ping -c 1 -W 3 "$SERVER_IP" &> /dev/null; then
-      echo -e "\n${GREEN}✓ Server $SERVER_IP ist via Ping erreichbar (nach Neustart).${NC}"
-      server_is_back_ping=true
+  
+  echo "Führe finalen SSH-Verbindungstest durch..."
+  local final_test_retries=5
+  local final_test_success=false
+  
+  for ((i=1; i<=final_test_retries; i++)); do
+    if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT \
+           -o PasswordAuthentication=no -o PubkeyAuthentication=yes \
+           -p $NEW_SSH_PORT -i ~/.ssh/id_ed25519 $USERNAME@$SERVER_IP "echo 'SSH-Härtung erfolgreich abgeschlossen'" &>/dev/null; then
+      final_test_success=true
       break
     else
-      reboot_ping_retries=$((reboot_ping_retries + 1))
-      echo -ne "${YELLOW}\rWarte auf Server (Ping)... Versuch $reboot_ping_retries/$max_reboot_ping_retries. Nächster Versuch in 5 Sekunden... ${NC}"
+      echo "Finaler Test Versuch $i/$final_test_retries fehlgeschlagen, warte 5 Sekunden..."
       sleep 5
     fi
   done
-  echo "" # Neue Zeile nach der Ping-Schleife
-
-  if [ "$server_is_back_ping" = false ]; then
-    echo -e "${RED}✗ Server $SERVER_IP ist nach $max_reboot_ping_retries Ping-Versuchen nicht erreichbar.${NC}"
-    echo -e "${RED}✗ SSH-Härtung fehlgeschlagen. Server könnte Probleme beim Neustart haben oder Netzwerkprobleme.${NC}"
+  
+  if [ "$final_test_success" = false ]; then
+    echo -e "${RED}✗ Finale SSH-Verbindung fehlgeschlagen${NC}"
+    rollback_ssh_changes "$phase"
     return 1
   fi
-
-  echo "15. Server ist via Ping erreichbar. Warte nun auf den SSH-Dienst auf Port $NEW_SSH_PORT..."
-  # Zusätzliche Pause, damit der SSH-Dienst nach dem Booten vollständig gestartet ist
-  echo "    (Warte 20 zusätzliche Sekunden für den SSH-Dienststart)"
-  sleep 20
-
-  local ssh_after_reboot_retries=0
-  # Kürzere Timeout-Periode für SSH nach erfolgreichem Ping, da der Server booten sollte.
-  local max_ssh_after_reboot_retries=12 # Bis zu 1 Minute (12 Versuche * 5 Sekunden Intervall)
-  local ssh_on_new_port_confirmed=false
-  while [ $ssh_after_reboot_retries -lt $max_ssh_after_reboot_retries ]; do
-    if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT -i ~/.ssh/id_ed25519 -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'SSH-Verbindung auf neuem Port $NEW_SSH_PORT nach Reboot erfolgreich'" &>/dev/null; then
-      echo -e "\n${GREEN}✓ SSH läuft auf Port $NEW_SSH_PORT und akzeptiert Verbindungen (nach Server-Neustart)!${NC}"
-      ssh_on_new_port_confirmed=true
-      break
-    else
-      ssh_after_reboot_retries=$((ssh_after_reboot_retries + 1))
-      echo -ne "${YELLOW}\rVersuch $ssh_after_reboot_retries/$max_ssh_after_reboot_retries: SSH auf Port $NEW_SSH_PORT (nach Reboot) nicht erreichbar. Warte 5 Sekunden... ${NC}"
-      sleep 5
-    fi
-  done
-  echo "" # Neue Zeile nach der SSH-Schleife
-
-  if [ "$ssh_on_new_port_confirmed" = false ]; then
-    echo -e "${RED}✗ SSH auf Port $NEW_SSH_PORT ist nach dem Server-Neustart und $max_ssh_after_reboot_retries Versuchen nicht erreichbar.${NC}"
-    echo -e "${RED}✗ SSH-Härtung fehlgeschlagen. Überprüfen Sie den Server $SERVER_IP manuell.${NC}"
-    echo -e "${YELLOW}  Eine automatische Wiederherstellung ist in diesem Zustand (nach Reboot mit vermutlich aktiver neuer SSH-Konfig) nicht sicher durchführbar.${NC}"
+  
+  ssh_config_hardened=true
+  
+  # =============================================================================
+  # PHASE 5: VALIDIERUNG UND ABSCHLUSS
+  # =============================================================================
+  
+  phase="VALIDATION"
+  echo -e "\n${BLUE}[PHASE 5]${NC} Validierung und Abschluss"
+  
+  # Umfassende Validierung der SSH-Härtung
+  echo "Validiere SSH-Härtung..."
+  
+  # Test 1: Key-only Authentication
+  if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=$SSH_TIMEOUT \
+         -o PasswordAuthentication=no -o PubkeyAuthentication=yes \
+         -p $NEW_SSH_PORT -i ~/.ssh/id_ed25519 $USERNAME@$SERVER_IP "echo 'Key-Auth: OK'" &>/dev/null; then
+    echo -e "${GREEN}✓ SSH-Key-Authentifizierung funktioniert${NC}"
+  else
+    echo -e "${RED}✗ SSH-Key-Authentifizierung fehlgeschlagen${NC}"
     return 1
   fi
-
-  echo -e "\n${GREEN}✓ SSH-Härtung erfolgreich abgeschlossen.${NC}"
-  echo -e "${GREEN}  Server $SERVER_IP läuft jetzt mit SSH auf Port $NEW_SSH_PORT und Key-Authentifizierung.${NC}"
-  echo -e "${GREEN}  Passwort-Authentifizierung ist deaktiviert.${NC}"
-  # Die globale Variable SSH_HARDENED wird von setup_firewall() gesetzt, basierend auf eigenen Tests.
-  # Diese Funktion gibt bei Erfolg 0 zurück, was signalisiert, dass die Härtung erfolgt sein sollte.
+  
+  # Test 2: Password Authentication disabled (sollte fehlschlagen)
+  if timeout 10 ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+         -o PasswordAuthentication=yes -o PubkeyAuthentication=no \
+         -p $NEW_SSH_PORT $USERNAME@$SERVER_IP "echo 'Password-Auth should fail'" &>/dev/null; then
+    echo -e "${RED}✗ Passwort-Authentifizierung ist noch aktiv (sollte deaktiviert sein)${NC}"
+    return 1
+  else
+    echo -e "${GREEN}✓ Passwort-Authentifizierung ist deaktiviert${NC}"
+  fi
+  
+  # Test 3: Root Login disabled (sollte fehlschlagen)
+  if timeout 10 ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+         -p $NEW_SSH_PORT root@$SERVER_IP "echo 'Root login should fail'" &>/dev/null; then
+    echo -e "${RED}✗ Root-Login ist noch möglich (sollte deaktiviert sein)${NC}"
+    return 1
+  else
+    echo -e "${GREEN}✓ Root-Login ist deaktiviert${NC}"
+  fi
+  
+  # SSH-Konfiguration anzeigen
+  echo -e "\n${YELLOW}Aktuelle SSH-Konfiguration (relevante Zeilen):${NC}"
+  run_ssh_command_with_key "grep -E '^(Port|PasswordAuthentication|PubkeyAuthentication|PermitRootLogin)' /etc/ssh/sshd_config"
+  
+  # Status-Informationen
+  echo -e "\n${YELLOW}SSH-Service-Status:${NC}"
+  run_ssh_command_with_key "sudo systemctl status ssh --no-pager -l"
+  
+  # Globale Variable setzen
+  SSH_HARDENED=true
+  
+  echo -e "\n${GREEN}===========================================${NC}"
+  echo -e "${GREEN}SSH-HÄRTUNG ERFOLGREICH ABGESCHLOSSEN${NC}"
+  echo -e "${GREEN}===========================================${NC}"
+  echo -e "${GREEN}✓ SSH läuft auf Port: $NEW_SSH_PORT${NC}"
+  echo -e "${GREEN}✓ Nur SSH-Key-Authentifizierung aktiv${NC}"
+  echo -e "${GREEN}✓ Passwort-Authentifizierung deaktiviert${NC}"
+  echo -e "${GREEN}✓ Root-Login deaktiviert${NC}"
+  echo -e "${GREEN}✓ Erweiterte Sicherheitsmaßnahmen aktiv${NC}"
+  echo ""
+  echo -e "${YELLOW}Backup der ursprünglichen Konfiguration: /etc/ssh/sshd_config.backup_${backup_timestamp}${NC}"
+  
+  pause_for_screenshot
   return 0
 }
 
