@@ -12,6 +12,37 @@ Proaktiver Schutz des Ubuntu/Debian-Servers durch Härtungsmassnahmen.
 - Testumgebung mit li232-vmKL1, li223-vmLM1 und if227-vmLF1
 
 ### Ausführung
+
+#### Generate Ed25519 keypair on vmKL1
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
+```
+
+#### Create and secure the target user’s SSH directory
+```bash
+sudo mkdir -p /home/vmadmin/.ssh
+sudo chmod 700 /home/vmadmin/.ssh
+sudo chown vmadmin:vmadmin /home/vmadmin/.ssh
+```
+
+#### Copy the public key on vmLM1 and set strict permissions:
+```bash
+scp ~/.ssh/id_ed25519.pub vmadmin@192.168.120.60:/home/vmadmin/.ssh/authorized_keys
+```
+
+```bash
+wget https://raw.githubusercontent.com/OJDevLab/gibb-hf-sa1/refs/heads/main/ssh_setup.sh -O remote_hardening.sh
+```
+
+
+
+
+
+
+
+
+
+
 #### 1. Skript herunterladen
 ```bash
 wget https://raw.githubusercontent.com/OJDevLab/gibb-hf-sa1/refs/heads/main/setup.sh -O remote_hardening.sh
