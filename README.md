@@ -34,6 +34,10 @@ scp ~/.ssh/id_ed25519.pub vmadmin@192.168.120.60:/home/vmadmin/.ssh/authorized_k
 wget https://raw.githubusercontent.com/OJDevLab/gibb-hf-sa1/refs/heads/main/ssh_setup.sh -O remote_hardening.sh
 ```
 
+```bash
+chmod +x ssh_setup.sh 
+```
+
 
 
 
