@@ -189,10 +189,10 @@ Add the following configuration:
 options {
     directory "/var/cache/bind";
     listen-on { any; };
-    listen-on-v6 { any; };
+    listen-on-v6 { none; };
     allow-query { any; };
     forwarders { 1.1.1.1; 8.8.8.8; };
-    recursion no;
+    recursion yes;
     auth-nxdomain no;
     version none;
     dnssec-validation no;
@@ -203,15 +203,13 @@ options {
 
 #### Configure Local Zones
 
-```
-bash
+```bash
 sudo nano /etc/bind/named.conf.local
 ```
 
 Add the following zone definitions:
 
 ```
-text
 // Zone Definitions
 // Primary Zone: Internal Network
 zone "smartlearn.lan" {
@@ -219,18 +217,21 @@ zone "smartlearn.lan" {
     file "/etc/bind/zones/db.smartlearn.lan";
     allow-transfer { none; };
 };
+
 // Primary Zone: DMZ Network
 zone "smartlearn.dmz" {
     type master;
     file "/etc/bind/zones/db.smartlearn.dmz";
     allow-transfer { none; };
 };
+
 // Reverse Lookup Zones
 zone "110.168.192.in-addr.arpa" {
     type master;
     file "/etc/bind/zones/db.110.168.192";
     allow-transfer { none; };
 };
+
 zone "120.168.192.in-addr.arpa" {
     type master;
     file "/etc/bind/zones/db.120.168.192";
@@ -240,10 +241,9 @@ zone "120.168.192.in-addr.arpa" {
 
 ### Step 4: Create Zone Database Files
 
-Create `/etc/bind/zones` and set permissions:
+Create `/etc/bind/zones` directory and set permissions:
 
-```
-bash
+```bash
 sudo mkdir -p /etc/bind/zones
 sudo chown -R bind:bind /etc/bind/zones
 sudo chmod -R 755 /etc/bind/zones
@@ -251,13 +251,11 @@ sudo chmod -R 755 /etc/bind/zones
 
 #### Internal Forward Zone (`smartlearn.lan`)
 
-```
-bash
+```bash
 sudo nano /etc/bind/zones/db.smartlearn.lan
 ```
 
 ```
-dns
 $TTL 86400
 @ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
     3 ; Serial
@@ -267,22 +265,21 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
-dns IN A 192.168.120.60
+; Hostnamen
 vmkl1 IN A 192.168.110.70
 vmlf1 IN A 192.168.110.1
+; Maschinennamen
 li232-vmKL1 IN A 192.168.110.70
 if227-vmLF1 IN A 192.168.110.1
 ```
 
 #### DMZ Forward Zone (`smartlearn.dmz`)
 
-```
-bash
+```bash
 sudo nano /etc/bind/zones/db.smartlearn.dmz
 ```
 
 ```
-dns
 $TTL 86400
 @ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
     3 ; Serial
@@ -292,23 +289,23 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
+; Hostnamen
 vmlm1   IN A 192.168.120.60
 www     IN A 192.168.120.60
 dns     IN A 192.168.120.60
 vmlf1   IN A 192.168.120.1
+; Maschinennamen
 li223-vmLM1 IN A 192.168.120.60
 if227-vmLF1 IN A 192.168.120.1
 ```
 
 #### Reverse Zone for `192.168.110.0/24`
 
-```
-bash
+```bash
 sudo nano /etc/bind/zones/db.110.168.192
 ```
 
 ```
-dns
 $TTL 86400
 @ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
     3 ; Serial
@@ -318,21 +315,20 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
+; PTR Records für Hostnamen und Maschinennamen
 70 IN PTR vmkl1.smartlearn.lan.
-1 IN PTR vmlf1.smartlearn.lan.
 70 IN PTR li232-vmKL1.smartlearn.lan.
-1 IN PTR if227-vmLF1.smartlearn.lan.
+1  IN PTR vmlf1.smartlearn.lan.
+1  IN PTR if227-vmLF1.smartlearn.lan.
 ```
 
 #### Reverse Zone for `192.168.120.0/24`
 
-```
-bash
+```bash
 sudo nano /etc/bind/zones/db.120.168.192
 ```
 
 ```
-dns
 $TTL 86400
 @ IN SOA dns.smartlearn.dmz. admin.smartlearn.dmz. (
     3 ; Serial
@@ -342,44 +338,71 @@ $TTL 86400
     604800 ) ; Negative Cache TTL
 ;
 @ IN NS dns.smartlearn.dmz.
+; PTR Records für Hostnamen und Maschinennamen
 60 IN PTR vmlm1.smartlearn.dmz.
 60 IN PTR www.smartlearn.dmz.
 60 IN PTR dns.smartlearn.dmz.
-1  IN PTR vmlf1.smartlearn.dmz.
 60 IN PTR li223-vmLM1.smartlearn.dmz.
+1  IN PTR vmlf1.smartlearn.dmz.
 1  IN PTR if227-vmLF1.smartlearn.dmz.
 ```
 
-### Reload `named` and Confirm Syntax
+### Step 5: Verify Configuration and Restart Service
 
-```
-bash
+```bash
+# Set correct permissions
 sudo chown -R bind:bind /etc/bind/zones
 sudo chmod -R 755 /etc/bind/zones
+
+# Check configuration syntax
 sudo named-checkconf
+
+# Check each zone file
 sudo named-checkzone smartlearn.lan /etc/bind/zones/db.smartlearn.lan
 sudo named-checkzone smartlearn.dmz /etc/bind/zones/db.smartlearn.dmz
 sudo named-checkzone 110.168.192.in-addr.arpa /etc/bind/zones/db.110.168.192
 sudo named-checkzone 120.168.192.in-addr.arpa /etc/bind/zones/db.120.168.192
+
+# Restart BIND9 service
 sudo systemctl restart bind9
+sudo systemctl status bind9
 ```
 
+### Step 6: Test DNS Resolution
 
-Check with nslookup
+Test forward lookups for **Hostnamen**:
 ```bash
+# smartlearn.lan Hostnamen
 nslookup vmkl1.smartlearn.lan 192.168.120.60
 nslookup vmlf1.smartlearn.lan 192.168.120.60
-nslookup dns.smartlearn.lan 192.168.120.60
 
+# smartlearn.dmz Hostnamen
 nslookup vmlm1.smartlearn.dmz 192.168.120.60
 nslookup www.smartlearn.dmz 192.168.120.60
 nslookup dns.smartlearn.dmz 192.168.120.60
 nslookup vmlf1.smartlearn.dmz 192.168.120.60
+```
 
-nslookup 192.168.110.70 192.168.120.60  # Sollte vmkl1.smartlearn.lan zurückgeben
-nslookup 192.168.110.1 192.168.120.60   # Sollte vmlf1.smartlearn.lan zurückgeben
-nslookup 192.168.120.60 192.168.120.60  # Sollte mehrere Einträge haben (vmlm1, www, dns)
-nslookup 192.168.120.1 192.168.120.60   # Sollte vmlf1.smartlearn.dmz zurückgeben
+Test forward lookups for **Maschinennamen**:
+```bash
+# smartlearn.lan Maschinennamen
+nslookup li232-vmkl1.smartlearn.lan 192.168.120.60
+nslookup if227-vmlf1.smartlearn.lan 192.168.120.60
+
+# smartlearn.dmz Maschinennamen
+nslookup li223-vmlm1.smartlearn.dmz 192.168.120.60
+nslookup if227-vmlf1.smartlearn.dmz 192.168.120.60
+```
+
+Test reverse lookups:
+```bash
+# 192.168.110.0/24 subnet
+nslookup 192.168.110.70 192.168.120.60  # Sollte vmkl1.smartlearn.lan und li232-vmKL1.smartlearn.lan zurückgeben
+nslookup 192.168.110.1 192.168.120.60   # Sollte vmlf1.smartlearn.lan und if227-vmLF1.smartlearn.lan zurückgeben
+
+# 192.168.120.0/24 subnet
+nslookup 192.168.120.60 192.168.120.60  # Sollte vmlm1, www, dns und li223-vmLM1.smartlearn.dmz zurückgeben
+nslookup 192.168.120.1 192.168.120.60   # Sollte vmlf1.smartlearn.dmz und if227-vmLF1.smartlearn.dmz zurückgeben
 ```
 
 ## Service Fingerprinting
