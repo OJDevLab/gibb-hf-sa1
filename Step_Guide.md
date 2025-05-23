@@ -11,7 +11,6 @@ Implementing automatic updates helps protect your server against known vulnerabi
 ```bash
 sudo apt update && sudo apt upgrade
 sudo apt install unattended-upgrades
-sudo systemctl enable unattended-upgrades
 sudo dpkg-reconfigure --priority=low unattended-upgrades
 ```
 
