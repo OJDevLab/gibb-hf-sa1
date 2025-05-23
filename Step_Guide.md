@@ -22,141 +22,181 @@ sudo systemctl status unattended-upgrades
 sudo unattended-upgrade --dry-run --verbose
 cat /etc/apt/apt.conf.d/20auto-upgrades
 ```
+## SSH Security and Firewall Configuration
 
-### Step 2: Enhance SSH Security
-#### Key Generation & Deployment
-Generate an Ed25519 keypair on vmKL1 if not already present:
+### Step 1: Generate SSH Key Pair (auf vmKL1)
+
+Generate an Ed25519 keypair on vmKL1:
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C "vmadmin@vmKL1"
 ```
 
-Create and secure the target user’s SSH directory:
+### Step 2: Deploy SSH Key to vmLM1
+
+Copy the public key to vmLM1 using ssh-copy-id:
 ```bash
-sudo mkdir -p /home/vmadmin/.ssh
-sudo chmod 700 /home/vmadmin/.ssh
-sudo chown vmadmin:vmadmin /home/vmadmin/.ssh
-```
-Copy the public key on vmLM1 and set strict permissions:
-```bash
-scp ~/.ssh/id_ed25519.pub vmadmin@192.168.120.60:/home/vmadmin/.ssh/authorized_keys
+ssh-copy-id -i ~/.ssh/id_ed25519 vmadmin@192.168.120.60
 ```
 
-Auf vmLM1
+Test the key-based authentication:
 ```bash
-sudo chmod 600 /home/vmadmin/.ssh/authorized_keys
-sudo chown vmadmin:vmadmin /home/vmadmin/.ssh/authorized_keys
+ssh -i ~/.ssh/id_ed25519 vmadmin@192.168.120.60
 ```
-#### SSH Daemon Configuration
-Now create a more secure SSH configuration.
 
-Back up the existing config:
+### Step 3: Harden SSH Configuration (auf vmLM1)
+
+Connect to vmLM1 and backup the SSH configuration:
 ```bash
-ssh 192.168.120.60
+ssh vmadmin@192.168.120.60
 sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 ```
-Edit /etc/ssh/sshd_config to include:
-```bash sudo nano /etc/ssh/sshd_config```
 
-Change to PasswordAuthentication and Port
+Edit the SSH configuration:
+```bash
+sudo nano /etc/ssh/sshd_config
 ```
-Port 23344                    # Non-standard port for security
 
-...
-
-PasswordAuthentication no     # Disable password auth
+Modify these key settings:
 ```
-Example Config File
+# Change port
+Port 23344
 
-```
-# SSH Configuration with Hardened Security Settings
-# --------------------------------------
-# General Connection Settings
-Protocol 2                    # Use SSH protocol version 2 only
-Port 23344                    # Non-standard port for security
+# Disable password authentication
+PasswordAuthentication no
+ChallengeResponseAuthentication no
 
-# Server Authentication Keys
-HostKey /etc/ssh/ssh_host_ed25519_key
-HostKey /etc/ssh/ssh_host_ecdsa_key
-HostKey /etc/ssh/ssh_host_rsa_key
+# Ensure public key authentication is enabled
+PubkeyAuthentication yes
 
-# Session Management & Security
-MaxSessions 5                 # Limit concurrent sessions
-MaxAuthTries 3                # Prevent brute force attacks
-LoginGraceTime 30             # Seconds to complete login
-StrictModes yes               # Check file permissions
-PermitRootLogin no            # Disable direct root login
-
-# Authentication Configuration
-PubkeyAuthentication yes      # Enable key-based auth
-PasswordAuthentication no     # Disable password auth
+# Disable root login
 PermitRootLogin no
-AuthorizedKeysFile .ssh/authorized_keys
 
-# Connection Monitoring
-ClientAliveInterval 300       # Check client every 5 min
-ClientAliveCountMax 2         # Disconnect after 2 failed checks
-
-# Logging Options
-SyslogFacility AUTH
-LogLevel VERBOSE              # Detailed logs
-
-# Feature Restrictions
-X11Forwarding no              # No X11 forwarding
-AllowTcpForwarding no         # No port forwarding
-AllowAgentForwarding no       # No agent forwarding
-PrintMotd no                  # No message of the day
-Banner /etc/issue.net         # Custom banner message
-
-# Additional Settings
-AcceptEnv LANG LC_*           # Accept language settings
-Subsystem sftp /usr/lib/openssh/sftp-server
+# Optional security improvements
+MaxAuthTries 3
+ClientAliveInterval 300
+ClientAliveCountMax 2
 ```
 
-Restart the service and confirm:
+Test the configuration for syntax errors:
+```bash
+sudo sshd -t
+```
 
+**IMPORTANT**: Before restarting SSH, open a NEW terminal and test the connection:
+```bash
+ssh -p 23344 vmadmin@192.168.120.60
+```
+
+If the test connection works, restart SSH in the original terminal:
 ```bash
 sudo systemctl restart ssh
-sudo systemctl daemon-reload
 sudo systemctl status ssh
-sudo systemctl status ssh.socket
 ```
+Sometime you need to restart the server with `sudo reboot`
 
-> **Note**: In some cases, you may need to reboot the server for the changes to take effect.
+### Step 4: Configure Firewall (auf vmLM1)
 
-### Step 3: Configure Firewall Protection
-
-Use UFW to restrict incoming connections:
+Install and configure UFW:
 ```bash
+sudo apt update
 sudo apt install -y ufw
-sudo ufw --force reset
-sudo ufw default deny
-sudo ufw allow 23344
-sudo ufw logging on
-sudo ufw enable
 ```
 
-Check active rules:
+Reset and configure firewall rules:
+```bash
+# Reset firewall
+sudo ufw --force reset
+
+# Set default policies
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# Allow SSH on custom port
+sudo ufw allow 23344/tcp comment 'SSH custom port'
+
+# Allow DNS (required for DNS server)
+sudo ufw allow 53/tcp comment 'DNS TCP'
+sudo ufw allow 53/udp comment 'DNS UDP'
+
+# Enable logging
+sudo ufw logging on
+
+# Enable the firewall
+sudo ufw --force enable
+```
+
+Check firewall status:
 ```bash
 sudo ufw status verbose
 ```
 
-### Checkliste 
-Automatische Updates
-sudo systemctl status unattended-upgrades
-Authentifikation mit SSH
-sudo systemctl status ssh
-- Sieht man das SSH auf Port 23344 läuft.
-Passwortauthentifikation sperren
-cat /etc/ssh/sshd_config
-Oder mit ssh 192.168.120.60 -p 23344 ohne Private Key
-Firewall mit Default-Deny-Regel
-sudo ufw status oder nmap 192.168.120.60
-Nur Port 23344 ist offen
-sudo ufw status oder nmap 192.168.120.60
+### Step 5: Additional Hardening
 
-#### Addional tasks
-Disable ICMP Ping
-Disable Ipv6 on Firewall
+#### Disable ICMP Ping
+```bash
+sudo nano /etc/ufw/before.rules
+```
+
+Find the ICMP section and change this line:
+```
+# ok icmp codes for INPUT
+-A ufw-before-input -p icmp --icmp-type echo-request -j DROP
+```
+
+#### Disable IPv6 in Firewall
+```bash
+sudo nano /etc/default/ufw
+```
+
+Change:
+```
+IPV6=no
+```
+
+Apply changes:
+```bash
+sudo ufw reload
+```
+
+### Step 6: Verification
+
+From vmKL1, test the configuration:
+
+```bash
+# Test SSH on new port (should work)
+ssh -p 23344 vmadmin@192.168.120.60
+
+# Test password authentication (should fail)
+ssh -p 23344 -o PubkeyAuthentication=no vmadmin@192.168.120.60
+
+# Test default SSH port (should fail)
+ssh vmadmin@192.168.120.60
+
+# Test ping (should not respond)
+ping -c 3 192.168.120.60
+
+# Scan open ports
+nmap 192.168.120.60
+```
+
+### Checklist
+
+- [ ] **SSH-Schlüssel**: Key generiert und mit ssh-copy-id deployed
+- [ ] **SSH Port 23344**: `sudo ss -tlnp | grep 23344`
+- [ ] **Passwort-Auth deaktiviert**: `sudo sshd -T | grep passwordauthentication`
+- [ ] **Firewall aktiv**: `sudo ufw status`
+- [ ] **Nur Port 23344 und 53 offen**: `sudo ufw status numbered`
+- [ ] **ICMP deaktiviert**: Ping timeout bei `ping 192.168.120.60`
+- [ ] **IPv6 deaktiviert**: `grep IPV6 /etc/default/ufw` zeigt `IPV6=no`
+
+### Troubleshooting
+
+Falls SSH-Zugriff verloren:
+1. Konsolen-Zugriff auf VM verwenden
+2. SSH-Status prüfen: `sudo systemctl status ssh`
+3. Firewall temporär deaktivieren: `sudo ufw disable`
+4. SSH-Konfiguration zurücksetzen: `sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config`
+
 
 ## DNS Server Implementation
 
