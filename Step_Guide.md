@@ -445,10 +445,23 @@ nslookup 192.168.120.60 192.168.120.60  # Sollte vmlm1, www, dns und li223-vmLM1
 nslookup 192.168.120.1 192.168.120.60   # Sollte vmlf1.smartlearn.dmz und if227-vmLF1.smartlearn.dmz zurückgeben
 ```
 ## Web Service Install
-1. `sudo apt install nginx` | Nginx installieren
-2. `sudo ufw allow 80` | Öffnet auf der Firewall den Port 80
-3. `sudo ufw reload` | Config neuladen
-4. index.html File nach /var/www/html kopieren
+
+Nginx installieren
+```
+sudo apt install nginx
+```
+
+Öffnet auf der Firewall den Port 80
+```
+sudo ufw allow 80
+```
+
+Config neuladen
+```
+sudo ufw reload
+```
+
+index.html File nach /var/www/html kopieren
 
 ## Service Fingerprinting
 
