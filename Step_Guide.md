@@ -52,6 +52,7 @@ sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 
 Edit the SSH configuration:
 ```bash
+sudo rm /etc/ssh/sshd_config
 sudo nano /etc/ssh/sshd_config
 ```
 
