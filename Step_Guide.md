@@ -448,7 +448,7 @@ nslookup 192.168.120.1 192.168.120.60   # Sollte vmlf1.smartlearn.dmz und if227-
 
 Nginx installieren
 ```
-sudo apt install nginx
+sudo apt install apache2
 ```
 
 Öffnet auf der Firewall den Port 80
