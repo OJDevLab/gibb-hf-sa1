@@ -470,7 +470,7 @@ These commands allow you to identify services running on your network servers.
 ### HTTP Server Information
 
 ```bash
-nc 192.168.110.60 80
+nc 192.168.120.60 80
 HEAD / HTTP/1.1
 ```
 
