@@ -179,14 +179,36 @@ nmap 192.168.120.60
 ```
 
 ### Checklist
+## Überprüfung Automatischer Updates
 
-- [ ] **SSH-Schlüssel**: Key generiert und mit ssh-copy-id deployed
-- [ ] **SSH Port 23344**: `sudo ss -tlnp | grep 23344`
-- [ ] **Passwort-Auth deaktiviert**: `sudo sshd -T | grep passwordauthentication`
-- [ ] **Firewall aktiv**: `sudo ufw status`
-- [ ] **Nur Port 23344 und 53 offen**: `sudo ufw status numbered`
-- [ ] **ICMP deaktiviert**: Ping timeout bei `ping 192.168.120.60`
-- [ ] **IPv6 deaktiviert**: `grep IPV6 /etc/default/ufw` zeigt `IPV6=no`
+- [ ] **Automatische Updates aktiviert prüfen** `sudo cat /etc/apt/apt.conf.d/20auto-upgrades`
+- [ ] **Update-Logs prüfen** `sudo ls -la /var/log/apt/`
+- [ ] **Regelmässige Updates installiert** Prüfung des Update-Logs in /var/log/apt
+
+## Authentifizierung mit SSH
+
+- [ ] **SSH-Dienst läuft** `sudo systemctl status ssh`
+- [ ] **SSH-Konfigurationsdatei prüfen** `sudo cat /etc/ssh/sshd_config`
+- [ ] **Korrekte Einstellungen für Schlüsselauthentifizierung** Überprüfen der SSH-Konfigurationsdatei auf korrekte Einstellungen
+- [ ] **SSH-Verbindung mit Schlüssel testen** Testen der SSH-Verbindung mit einem entsprechenden Schlüssel
+
+## Sperrung der Passwortauthentifizierung
+
+- [ ] **PasswordAuthentication auf no gesetzt** `sudo grep "PasswordAuthentication no" /etc/ssh/sshd_config`
+- [ ] **Passwort-Anmeldung testen** Versuchen, sich mit einem Passwort anzumelden, um zu bestätigen, dass die Passwortauthentifizierung gesperrt ist
+
+## Firewall mit Default-Deny-Regel
+
+- [ ] **Firewall-Status überprüfen** `sudo ufw status`
+- [ ] **Standardrichtlinie für eingehende Verbindungen auf "deny"** Sicherstellen, dass die Standardrichtlinie auf "deny" (verweigern) gesetzt ist
+- [ ] **Alle existierenden Firewall-Regeln überprüfen** Überprüfen aller existierenden Firewall-Regeln
+
+## Nur Port 23344 ist offen
+
+- [ ] **Port 23344 in Firewall geöffnet** Speziell überprüfen, ob nur Port 23344 in der Firewall für eingehende Verbindungen geöffnet ist
+- [ ] **Alle anderen Ports geschlossen** Alle anderen Ports sollten geschlossen oder für nicht autorisierten Zugriff gesperrt sein
+- [ ] **Port 23344 von externem System testen** Testen des Ports 23344 von einem externen System, um sicherzustellen, dass er wie erwartet funktioniert
+
 
 ### Troubleshooting
 
