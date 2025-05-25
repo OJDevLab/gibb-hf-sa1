@@ -501,14 +501,14 @@ Then
 
 Check with
 ```
-curl -I http://<SERVER> | grep -i '^Server:'
+curl -I http://192.168.120.60 | grep -i '^Server:'
 dig @localhost version.bind TXT CHAOS   # sollte leer / NXDOMAIN sein
 ```
 
 ### DNS Server Information
 
 ```bash
-echo -ne "\x00\x1c\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07\x76\x65\x72\x73\x69\x6f\x6e\x04\x62\x69\x6e\x64\x00\x00\x10\x00\x03" | nc -u <DNS_SERVER_IP> 53 | xxd -g 1
+echo -ne "\x00\x1c\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07\x76\x65\x72\x73\x69\x6f\x6e\x04\x62\x69\x6e\x64\x00\x00\x10\x00\x03" | nc -u 192.168.120.60 53 | xxd -g 1
 ```
 
 ## Verification Checklist
