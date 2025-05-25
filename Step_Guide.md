@@ -87,12 +87,10 @@ sudo sshd -t
 ssh -p 23344 vmadmin@192.168.120.60
 ```
 
-If the test connection works, restart SSH in the original terminal:
+If the test connection works, restart the ubuntu server:
 ```bash
-sudo systemctl restart ssh
-sudo systemctl status ssh
+sudo reboot
 ```
-Sometime you need to restart the server with `sudo reboot`
 
 ### Step 4: Configure Firewall (auf vmLM1)
 
