@@ -219,6 +219,7 @@ sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.original
 
 Configure BIND options:
 ```bash
+sudo rm /etc/bind/named.conf.options
 sudo nano /etc/bind/named.conf.options
 ```
 
