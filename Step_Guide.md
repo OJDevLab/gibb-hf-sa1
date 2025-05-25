@@ -89,6 +89,8 @@ ssh -p 23344 vmadmin@192.168.120.60
 
 If the test connection works, restart the ubuntu server:
 ```bash
+sudo systemctl restart ssh
+sudo systemctl status ssh
 sudo reboot
 ```
 
