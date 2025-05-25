@@ -1,4 +1,4 @@
- Server Hardening & DNS Configuration Guide
+# Server Hardening & DNS Configuration Guide
 
 This comprehensive guide walks you through implementing security hardening for your server and setting up a DNS infrastructure without relying on automation scripts.
 
