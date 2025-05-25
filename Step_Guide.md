@@ -471,6 +471,9 @@ These commands allow you to identify services running on your network servers.
 
 ```bash
 nc 192.168.120.60 80
+
+//Then
+
 HEAD / HTTP/1.1
 ```
 
