@@ -1,4 +1,4 @@
-# Server Hardening & DNS Configuration Guide
+ Server Hardening & DNS Configuration Guide
 
 This comprehensive guide walks you through implementing security hardening for your server and setting up a DNS infrastructure without relying on automation scripts.
 
@@ -525,7 +525,7 @@ ssh -p 23344 root@192.168.120.60 || echo "Root login blocked"
 
 #### 3. Password Authentication Disabled:
 ```bash
-ssh -p 23344 vmadmin@192.168.120.60 || echo "Password auth disabled"
+ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no -p 23344 vmadmin@192.168.120.60 || echo "Password auth blocked"
 ```
 
 
