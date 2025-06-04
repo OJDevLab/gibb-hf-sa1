@@ -76,7 +76,7 @@ Port Obfuscation (`Port 23344`) **senkt** Rauschen (Scanner), **ersetzt aber kei
 
 ## 5  DNS‑Konzept (Application Layer)
 
-DNS ist das **Telefonbuch des Internets** – wenn Namen nicht aufgelöst werden können, ist jede weitere Kommunikation zwecklos. Dieses Kapitel vertieft die Theorie hinter Records, Zonen und Sicherheits‑Mechanismen.
+DNS ist das **Telefonbuch des Internets** – wenn Namen nicht aufgelöst werden können, ist jede weitere Kommunikation zwecklos.
 
 ### 5.1  Hierarchisches Namespace
 * *Root* (.) → *Top‑Level Domain* (z. B. .com, .lan) → *Second Level* (smartlearn) → *Subdomain* (www).  
@@ -190,10 +190,5 @@ Roll‑Over erfolgt per *Pre‑Publish/Double‑Signature*: Neuer Schlüssel wir
 3. **Network Flow** – Firewall Counters, NetFlow/IPFIX
 
 Korrelation ≙ Erkennung; ohne Zentralisierung (ELK/Grafana Loki) bleibt vieles unentdeckt.
-
----
-
-## 8  Fazit
-Theorie liefert das **Warum** hinter jedem Befehl. Verinnerliche diese Prinzipien, bevor du Skripte kopierst – sie helfen dir, künftige Technologien eigenständig zu beurteilen und robuste Security‑Architekturen zu entwerfen.
 
 ---
